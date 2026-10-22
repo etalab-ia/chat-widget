@@ -219,3 +219,44 @@ describe("POST /api/chat", () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("POST /api/chat abuse controls", () => {
+  it("refuses a caller that exceeds the per-client window", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/search")) {
+          return new Response(JSON.stringify(SEARCH_RESPONSE), { status: 200 });
+        }
+        return new Response(sseBody(['data: {"choices":[{"delta":{"content":"ok"}}]}\n\n', "data: [DONE]\n\n"]), {
+          status: 200,
+        });
+      }),
+    );
+
+    const { POST } = await import("@/app/api/chat/route");
+    const { ABUSE_LIMITS } = await import("@/lib/config");
+
+    // A fresh address, distinct from the other tests in this file.
+    const headers = { "Content-Type": "application/json", "x-real-ip": "203.0.113.77" };
+
+    let refused: Response | undefined;
+    for (let index = 0; index <= ABUSE_LIMITS.maxPerClientPerWindow; index += 1) {
+      const response = await POST(
+        postRequest({ question: "Comment segmenter un réseau ?" }, { headers }),
+      );
+      if (response.status === 429) {
+        refused = response;
+        break;
+      }
+      // Drain the stream so the request completes before the next one.
+      await response.text();
+    }
+
+    expect(refused).toBeDefined();
+    expect(refused!.headers.get("Retry-After")).toBeTruthy();
+    const body = (await refused!.json()) as { error: string };
+    expect(body.error).toContain("Trop de questions");
+  });
+});

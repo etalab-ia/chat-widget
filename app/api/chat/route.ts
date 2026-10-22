@@ -1,8 +1,16 @@
 import { AlbertClient } from "@/lib/albert/client";
-import { loadConfig, LIMITS } from "@/lib/config";
+import { ABUSE_LIMITS, loadConfig, LIMITS } from "@/lib/config";
+import { clientKey, FixedWindowLimiter } from "@/lib/rate-limit";
 import { blocksToSources, buildContextBlocks } from "@/lib/rag/citations";
 import { buildChatMessages } from "@/lib/rag/prompt";
 import { chatRequestSchema, encodeEvent } from "@/lib/rag/stream-protocol";
+
+// Process-wide, so the counters survive across requests within one instance.
+const perClient = new FixedWindowLimiter(
+  ABUSE_LIMITS.maxPerClientPerWindow,
+  ABUSE_LIMITS.clientWindowMs,
+);
+const perDay = new FixedWindowLimiter(ABUSE_LIMITS.maxPerDay, ABUSE_LIMITS.dayMs);
 
 export async function POST(request: Request) {
   let parsedBody: unknown;
@@ -17,6 +25,39 @@ export async function POST(request: Request) {
     return Response.json(
       { error: "Question invalide.", issues: parsed.error.issues },
       { status: 400 },
+    );
+  }
+
+  // Refuse before spending an Albert call. The daily cap is charged for every
+  // admitted request, so a distributed flood hits the ceiling instead of the
+  // upstream quota.
+  const caller = clientKey(request.headers);
+  const clientDecision = perClient.check(caller);
+  if (!clientDecision.allowed) {
+    return Response.json(
+      {
+        error:
+          "Trop de questions en peu de temps. Réessayez dans un instant.",
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(clientDecision.retryAfterSeconds) },
+      },
+    );
+  }
+
+  const dayDecision = perDay.check("global");
+  if (!dayDecision.allowed) {
+    console.warn("[api/chat] daily request budget exhausted");
+    return Response.json(
+      {
+        error:
+          "Le service a atteint sa limite quotidienne. Réessayez demain.",
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(dayDecision.retryAfterSeconds) },
+      },
     );
   }
 

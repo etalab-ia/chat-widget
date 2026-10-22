@@ -58,3 +58,17 @@ export const LIMITS = {
   searchResults: 8,
   maxChunkCharacters: 1200,
 } as const;
+
+/**
+ * Abuse controls for a public endpoint with no user accounts.
+ *
+ * The Albert key sits behind this route, so an open endpoint spends someone
+ * else's quota. `maxPerClientPerWindow` keeps one caller from monopolising the
+ * service; `maxPerDay` bounds the total even against a distributed flood.
+ */
+export const ABUSE_LIMITS = {
+  maxPerClientPerWindow: 10,
+  clientWindowMs: 60_000,
+  maxPerDay: 500,
+  dayMs: 24 * 60 * 60 * 1000,
+} as const;
