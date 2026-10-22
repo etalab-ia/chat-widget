@@ -28,11 +28,17 @@ export class AlbertClient {
     path: string,
     init: RequestInit = {},
   ): Promise<Response> {
+    // FormData bodies must keep the multipart boundary that fetch generates, so
+    // only JSON payloads get an explicit Content-Type.
+    const isFormData = init.body instanceof FormData;
+
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
-        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(init.body && !isFormData
+          ? { "Content-Type": "application/json" }
+          : {}),
         ...init.headers,
       },
       cache: "no-store",
@@ -149,7 +155,11 @@ export class AlbertClient {
   async findCollectionByName(
     name: string,
   ): Promise<{ id: number; name: string } | null> {
-    const response = await this.request("/v1/collections");
+    // The listing endpoint is paginated (10 by default); filter server-side so a
+    // collection is not missed once the account holds more than one page.
+    const response = await this.request(
+      `/v1/collections?name=${encodeURIComponent(name)}&limit=100`,
+    );
     const payload = (await response.json()) as {
       data?: Array<{ id: number; name: string }>;
     };
@@ -161,12 +171,15 @@ export class AlbertClient {
     name: string;
     collectionId: number;
   }): Promise<{ id: number }> {
+    // Albert expects multipart/form-data here, not JSON: the optional `file`
+    // part is what distinguishes an upload from a hand-filled document.
+    const body = new FormData();
+    body.set("collection_id", String(params.collectionId));
+    body.set("name", params.name);
+
     const response = await this.request("/v1/documents", {
       method: "POST",
-      body: JSON.stringify({
-        name: params.name,
-        collection_id: params.collectionId,
-      }),
+      body,
     });
     return (await response.json()) as { id: number };
   }

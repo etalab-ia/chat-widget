@@ -1,4 +1,4 @@
-import { AlbertClient } from "../../lib/albert/client";
+import { AlbertClient, AlbertError } from "../../lib/albert/client";
 import type { ChunkMetadata } from "../../lib/albert/types";
 import { buildCitationUrl } from "../../lib/rag/citations";
 import type { PdfSource } from "./catalogue";
@@ -90,9 +90,19 @@ export async function ingestSource(params: {
     return {
       status: "failed",
       guideId: source.guideId,
-      reason: error instanceof Error ? error.message : String(error),
+      reason: describeFailure(error),
     };
   }
+}
+
+/** Keeps the API's own explanation in the report; a bare status code hides it. */
+function describeFailure(error: unknown): string {
+  if (error instanceof AlbertError) {
+    return error.detail
+      ? `${error.message}: ${error.detail}`
+      : error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function buildChunkMetadata(
