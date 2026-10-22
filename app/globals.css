@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+/* The embed route must be transparent so the host page shows through around
+   the floating panel. */
+body:has([data-embed-surface]) {
+  background: transparent;
+}

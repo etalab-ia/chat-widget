@@ -1,0 +1,9 @@
+# Enforce a one-week minimum release age on newly published packages to limit
+# exposure to supply-chain attacks (squad dependency policy).
+minimumReleaseAge: 10080
+
+# Build scripts are denied by default; allow only what the toolchain needs.
+allowBuilds:
+  esbuild: true
+  sharp: false
+  unrs-resolver: false
