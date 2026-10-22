@@ -8,12 +8,17 @@ import { DocumentIcon } from "./icons";
  * citation list. Each entry opens the source PDF at the cited page.
  */
 export function MessageSources() {
-  const sources = useAuiState((state) => {
-    if (state.message.role !== "assistant") return [];
-    return state.message.parts.filter(
-      (part) => part.type === "source" && part.sourceType === "url",
-    );
-  });
+  // The selector must return a value the store already holds. Building a new
+  // array inside the selector makes every read look changed and React loops.
+  const role = useAuiState((state) => state.message.role);
+  const parts = useAuiState((state) => state.message.parts);
+
+  const sources =
+    role === "assistant"
+      ? parts.filter(
+          (part) => part.type === "source" && part.sourceType === "url",
+        )
+      : [];
 
   if (sources.length === 0) return null;
 
