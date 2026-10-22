@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCitationUrl, buildContextBlocks, toCitations } from "@/lib/rag/citations";
+import {
+  blocksToSources,
+  buildCitationUrl,
+  buildContextBlocks,
+  toCitations,
+} from "@/lib/rag/citations";
 import type { SearchHit } from "@/lib/albert/types";
 
 function hit(overrides: {
@@ -108,5 +113,37 @@ describe("buildContextBlocks", () => {
   it("skips hits whose metadata has no source URL", () => {
     const blocks = buildContextBlocks([hit({ metadata: { page: 3 } })]);
     expect(blocks).toHaveLength(0);
+  });
+
+  it("merges two chunks from the same page into one block", () => {
+    const metadata = { source_url: "https://e.org/a.pdf", page: 7, guide_title: "Guide A" };
+    const blocks = buildContextBlocks([
+      hit({ id: 1, content: "premier extrait", metadata }),
+      hit({ id: 2, content: "second extrait", metadata }),
+      hit({ id: 3, content: "autre page", metadata: { ...metadata, page: 8 } }),
+    ]);
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].content).toContain("premier extrait");
+    expect(blocks[0].content).toContain("second extrait");
+    expect(blocks[1].marker).toBe("[2]");
+    expect(blocks[1].citation.page).toBe(8);
+  });
+
+  it("keeps markers aligned with the source list order", () => {
+    const metadata = { source_url: "https://e.org/a.pdf", page: 7 };
+    const blocks = buildContextBlocks([
+      hit({ id: 1, metadata }),
+      hit({ id: 2, metadata }),
+      hit({ id: 3, metadata: { ...metadata, page: 9 } }),
+    ]);
+    const sources = blocksToSources(blocks);
+
+    expect(sources).toHaveLength(blocks.length);
+    for (const [index, block] of blocks.entries()) {
+      // Marker [N] must address source N.
+      expect(block.marker).toBe(`[${index + 1}]`);
+      expect(sources[index]).toBe(block.citation);
+    }
   });
 });

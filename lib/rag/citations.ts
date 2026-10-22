@@ -78,13 +78,18 @@ export function toCitations(hits: SearchHit[]): Citation[] {
   return [...byKey.values()].sort((left, right) => right.score - left.score);
 }
 
-/** Builds the numbered context blocks that the model is asked to cite. */
+/**
+ * Builds the numbered context blocks that the model is asked to cite.
+ *
+ * Hits sharing a page are merged into a single block, so block N and source N
+ * are the same document: the marker the model writes, e.g. [3], indexes the
+ * source list the interface renders. Without the merge, two chunks from one
+ * page would produce two markers pointing at one source and shift every
+ * following marker.
+ */
 export function buildContextBlocks(hits: SearchHit[]): ContextBlock[] {
   const blocks: ContextBlock[] = [];
-  const citations = toCitations(hits);
-  const citationByKey = new Map(
-    citations.map((citation) => [`${citation.url}`, citation]),
-  );
+  const blockByKey = new Map<string, ContextBlock>();
 
   for (const hit of hits) {
     const metadata = hit.chunk.metadata ?? {};
@@ -92,18 +97,47 @@ export function buildContextBlocks(hits: SearchHit[]): ContextBlock[] {
     if (typeof sourceUrl !== "string" || sourceUrl.length === 0) continue;
 
     const page = readPage(metadata);
-    const citation = citationByKey.get(buildCitationUrl(sourceUrl, page));
-    if (!citation) continue;
-
     const content = hit.chunk.content.trim();
     if (content.length === 0) continue;
 
-    blocks.push({
+    const key = buildCitationUrl(sourceUrl, page);
+    const existing = blockByKey.get(key);
+
+    if (existing) {
+      if (existing.content.length < LIMITS.maxChunkCharacters) {
+        existing.content = `${existing.content}\n\n${content}`.slice(
+          0,
+          LIMITS.maxChunkCharacters,
+        );
+      }
+      continue;
+    }
+
+    const title =
+      typeof metadata.guide_title === "string" && metadata.guide_title
+        ? metadata.guide_title
+        : "Document ANSSI";
+
+    const block: ContextBlock = {
       marker: `[${blocks.length + 1}]`,
-      citation,
+      citation: {
+        id: `${hit.chunk.document_id}-${hit.chunk.id}`,
+        title,
+        page,
+        url: key,
+        score: hit.score,
+      },
       content: content.slice(0, LIMITS.maxChunkCharacters),
-    });
+    };
+
+    blocks.push(block);
+    blockByKey.set(key, block);
   }
 
   return blocks;
+}
+
+/** The sources of an answer, in the order its markers refer to. */
+export function blocksToSources(blocks: ContextBlock[]): Citation[] {
+  return blocks.map((block) => block.citation);
 }

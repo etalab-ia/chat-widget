@@ -7,6 +7,7 @@ import {
   ThreadPrimitive,
   useAuiState,
 } from "@assistant-ui/react";
+import { parseAnswer } from "@/lib/render-answer";
 import { ChatIcon, SendIcon, StopIcon } from "./icons";
 import { MessageSources } from "./sources";
 
@@ -104,13 +105,37 @@ function AssistantMessage() {
 function AnswerText({ text }: { text: string }) {
   if (!text) return null;
 
+  const blocks = parseAnswer(text);
+
   return (
-    <div className="flex flex-col gap-2">
-      {text.split(/\n{2,}/).map((paragraph, index) => (
-        <p key={index} className="whitespace-pre-line">
-          {paragraph}
-        </p>
-      ))}
+    <div className="flex flex-col gap-1.5">
+      {blocks.map((block, index) => {
+        if (block.kind === "bullet") {
+          return (
+            <div key={index} className="flex gap-2 pl-0.5">
+              <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-slate-400" />
+              <p className="flex-1">{block.text}</p>
+            </div>
+          );
+        }
+
+        if (block.kind === "ordered") {
+          return (
+            <div key={index} className="flex gap-2 pl-0.5">
+              <span className="shrink-0 tabular-nums text-slate-500">
+                {index + 1}.
+              </span>
+              <p className="flex-1">{block.text}</p>
+            </div>
+          );
+        }
+
+        return (
+          <p key={index} className="whitespace-pre-line">
+            {block.text}
+          </p>
+        );
+      })}
     </div>
   );
 }

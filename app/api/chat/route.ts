@@ -1,6 +1,6 @@
 import { AlbertClient } from "@/lib/albert/client";
 import { loadConfig, LIMITS } from "@/lib/config";
-import { buildContextBlocks, toCitations } from "@/lib/rag/citations";
+import { blocksToSources, buildContextBlocks } from "@/lib/rag/citations";
 import { buildChatMessages } from "@/lib/rag/prompt";
 import { chatRequestSchema, encodeEvent } from "@/lib/rag/stream-protocol";
 
@@ -41,8 +41,26 @@ export async function POST(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      // A browser that navigates away closes the stream; enqueueing on it then
+      // throws. Track that state so a disconnect ends the work quietly instead
+      // of turning into an error event written to a closed channel.
+      let closed = false;
+      const upstream = new AbortController();
+
+      request.signal.addEventListener("abort", () => {
+        closed = true;
+        upstream.abort();
+      });
+
       const send = (event: Parameters<typeof encodeEvent>[0]) => {
-        controller.enqueue(encoder.encode(encodeEvent(event)));
+        if (closed) return false;
+        try {
+          controller.enqueue(encoder.encode(encodeEvent(event)));
+          return true;
+        } catch {
+          closed = true;
+          return false;
+        }
       };
 
       try {
@@ -54,27 +72,39 @@ export async function POST(request: Request) {
         });
 
         const blocks = buildContextBlocks(hits);
-        send({ type: "sources", sources: toCitations(hits) });
+        // The block order is the citation order: marker [N] in the answer must
+        // point at entry N of the rendered source list.
+        send({ type: "sources", sources: blocksToSources(blocks) });
 
         const messages = buildChatMessages({ question, blocks, history });
 
         for await (const delta of client.streamChat({
           messages,
           model: config.chatModel,
+          signal: upstream.signal,
         })) {
-          send({ type: "delta", text: delta });
+          if (closed) break;
+          if (!send({ type: "delta", text: delta })) break;
         }
 
         send({ type: "done" });
       } catch (error) {
-        console.error("[api/chat] upstream error", error);
-        send({
-          type: "error",
-          message:
-            "La recherche ou la génération a échoué. Réessayez dans un instant.",
-        });
+        // An aborted request is not a failure: the client is gone.
+        if (!closed && !upstream.signal.aborted) {
+          console.error("[api/chat] upstream error", error);
+          send({
+            type: "error",
+            message:
+              "La recherche ou la génération a échoué. Réessayez dans un instant.",
+          });
+        }
       } finally {
-        controller.close();
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the consumer.
+        }
       }
     },
   });
