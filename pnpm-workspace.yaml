@@ -7,3 +7,5 @@ allowBuilds:
   esbuild: true
   sharp: false
   unrs-resolver: false
+  # Cloudflare's Workers runtime binary, required by the deployment toolchain.
+  workerd: true
