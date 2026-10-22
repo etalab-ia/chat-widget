@@ -112,6 +112,8 @@ Le seul état est celui du fil de conversation, conservé en mémoire du navigat
 
 - La clé Albert reste côté serveur ; elle n'est jamais incluse dans un bundle client.
 - La route `/api/chat` valide la requête (longueur de question, historique borné) avant tout appel amont.
+- Deux plafonds protègent la route : 10 questions par minute et par client, et 500 questions par jour pour l'ensemble du service. Les deux refusent avec un code 429 avant tout appel amont, donc une salve coûte une réponse JSON et non une recherche plus une complétion. Les plafonds se règlent par `ABUSE_MAX_PER_CLIENT` et `ABUSE_MAX_PER_DAY`.
+- Le plafond par client s'appuie sur `X-Real-IP` puis sur la première adresse `X-Forwarded-For`. Ces en-têtes sont contrôlés par le client lorsque le service est joignable directement : c'est une mesure d'équité, pas une authentification. Le plafond quotidien, lui, borne réellement le coût total.
 - Les documents ouverts par les citations le sont avec `rel="noopener noreferrer"`.
 - pnpm impose un délai minimum d'une semaine avant d'accepter une nouvelle version de paquet (`minimumReleaseAge: 10080`).
 - `gitleaks` est configuré en pre-commit (`.pre-commit-config.yaml`), à activer par `pre-commit install`.
@@ -121,10 +123,26 @@ Les workflows de CI (lint, typecheck, tests, build, `gitleaks`, `OSV-Scanner`) s
 
 ## Limites du POC
 
-- Pas d'authentification ni de limitation de débit sur `/api/chat`.
+- Pas d'authentification sur `/api/chat` : toute personne qui connaît l'URL peut poser des questions, dans la limite des plafonds ci-dessus.
+- Les compteurs des plafonds vivent en mémoire du processus. Ils sont donc propres à chaque instance : si le service est un jour déployé sur plusieurs instances, il faudra un stockage partagé, sinon la limite effective est multipliée par le nombre d'instances.
 - L'historique de conversation reste dans le navigateur ; un rechargement le perd.
 - L'ingestion n'est pas incrémentale : rejouer le script ajoute des documents, il ne met pas à jour ceux déjà indexés.
 - Les PDF scannés dépendent de la qualité de l'OCR.
+
+## Déploiement (Scaleway Serverless Containers)
+
+Le conteneur tourne sur Scaleway, en `fr-par`, avec `min_scale: 0` et `max_scale: 1`. Il écoute sur le port 8080.
+
+Deux points ont coûté du temps et méritent d'être connus avant de redéployer :
+
+- **`HOSTNAME=0.0.0.0` est obligatoire.** Le serveur standalone de Next lit `process.env.HOSTNAME` et l'utilise comme adresse d'écoute. Un conteneur renseigne `HOSTNAME` avec son propre identifiant, que le DNS de Scaleway ne résout pas : le conteneur démarre, écrit `Ready`, et n'écoute sur rien. Scaleway signale alors `Container is unable to start OR is not listening on port 8080`. Le nom d'hôte se résout quand on teste en local avec Podman, ce qui rend le diagnostic trompeur.
+- **`PORT` est un nom réservé** et Scaleway refuse de le définir. Le port se règle par le champ `port` de la ressource, pas par l'environnement.
+
+Le champ d'image de l'API s'appelle `image` (et non `registry_image`), et les limites s'expriment en `memory_limit_bytes` et `mvcpu_limit`. Le `timeout` est une durée au format protobuf, donc une chaîne comme `"300s"`.
+
+La nomenclature du registre est `rg.<region>.scw.cloud/<espace>/<image>:<tag>` pour pousser, mais l'API attend la même référence sans le préfixe `rg.` : `fr-par.scw.cloud/<espace>/<image>:<tag>`.
+
+Le secret `ALBERT_API_KEY` est stocké comme variable d'environnement secrète : l'API le renvoie haché en argon2id, ce qui est le comportement attendu et non une corruption de la valeur.
 
 ---
 
