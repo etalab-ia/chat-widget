@@ -13,6 +13,7 @@
  */
 import { AlbertClient } from "../lib/albert/client";
 import { fetchCatalogue, extractPdfSources, groupByLanguage, type PdfSource } from "./lib/catalogue";
+import { readSetting, requireSetting } from "./lib/env";
 import { ingestSource, type IngestOutcome } from "./lib/ingest";
 
 const COLLECTION_NAMES = {
@@ -27,6 +28,7 @@ type Options = {
   dryRun: boolean;
   limit?: number;
   concurrency: number;
+  envFile?: string;
 };
 
 function parseArgs(argv: string[]): Options {
@@ -34,6 +36,7 @@ function parseArgs(argv: string[]): Options {
   let dryRun = false;
   let limit: number | undefined;
   let concurrency = 2;
+  let envFile: string | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -61,6 +64,10 @@ function parseArgs(argv: string[]): Options {
       if (!Number.isFinite(concurrency) || concurrency <= 0) {
         throw new Error("--concurrency attend un entier positif");
       }
+    } else if (arg === "--env-file") {
+      envFile = argv[index + 1];
+      index += 1;
+      if (!envFile) throw new Error("--env-file attend un chemin");
     } else {
       throw new Error(`Option inconnue: ${arg}`);
     }
@@ -68,13 +75,7 @@ function parseArgs(argv: string[]): Options {
 
   if (languages.length === 0) languages = ["FR"];
 
-  return { languages, dryRun, limit, concurrency };
-}
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`Variable d'environnement manquante: ${name}`);
-  return value;
+  return { languages, dryRun, limit, concurrency, envFile };
 }
 
 async function ensureCollection(
@@ -159,8 +160,10 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
 
   const client = new AlbertClient({
-    baseUrl: process.env.ALBERT_BASE_URL ?? "https://albert.api.etalab.gouv.fr",
-    apiKey: requireEnv("ALBERT_API_KEY"),
+    baseUrl:
+      readSetting("ALBERT_BASE_URL", options.envFile) ??
+      "https://albert.api.etalab.gouv.fr",
+    apiKey: requireSetting("ALBERT_API_KEY", options.envFile),
   });
 
   const entries = await fetchCatalogue();
