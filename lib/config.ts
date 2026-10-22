@@ -66,9 +66,16 @@ export const LIMITS = {
  * else's quota. `maxPerClientPerWindow` keeps one caller from monopolising the
  * service; `maxPerDay` bounds the total even against a distributed flood.
  */
+function positiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** Overridable from the deployment environment so the caps can be tuned. */
 export const ABUSE_LIMITS = {
-  maxPerClientPerWindow: 10,
-  clientWindowMs: 60_000,
-  maxPerDay: 500,
+  maxPerClientPerWindow: positiveInt(process.env.ABUSE_MAX_PER_CLIENT, 10),
+  clientWindowMs: positiveInt(process.env.ABUSE_CLIENT_WINDOW_MS, 60_000),
+  maxPerDay: positiveInt(process.env.ABUSE_MAX_PER_DAY, 500),
   dayMs: 24 * 60 * 60 * 1000,
 } as const;
