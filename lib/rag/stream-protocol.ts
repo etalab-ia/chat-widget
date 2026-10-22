@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LIMITS } from "@/lib/config";
 import type { Citation } from "./citations";
 
 /**
@@ -16,7 +17,7 @@ export function encodeEvent(event: StreamEvent): string {
 }
 
 export const chatRequestSchema = z.object({
-  question: z.string().trim().min(1).max(1000),
+  question: z.string().trim().min(1).max(LIMITS.maxQuestionLength),
   history: z
     .array(
       z.object({
@@ -24,7 +25,7 @@ export const chatRequestSchema = z.object({
         content: z.string().max(8000),
       }),
     )
-    .max(20)
+    .max(LIMITS.maxHistoryEntries)
     .default([]),
 });
 

@@ -182,3 +182,32 @@ describe("AlbertClient.addChunks", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("AlbertClient.streamChat CRLF framing", () => {
+  async function textFrom(body: string): Promise<string> {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+    const client = new AlbertClient({ baseUrl: "https://albert.test", apiKey: "sk-test" });
+    const text = await collect(
+      client.streamChat({ messages: [{ role: "user", content: "q" }], model: "m" }),
+    );
+    vi.unstubAllGlobals();
+    return text;
+  }
+
+  it("parses CRLF-framed events instead of dropping the answer", async () => {
+    const body = [
+      'data: {"choices":[{"delta":{"content":"Bon"}}]}',
+      "",
+      'data: {"choices":[{"delta":{"content":"jour"}}]}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\r\n");
+    expect(await textFrom(body)).toBe("Bonjour");
+  });
+
+  it("parses LF framing", async () => {
+    const body = 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n';
+    expect(await textFrom(body)).toBe("ok");
+  });
+});

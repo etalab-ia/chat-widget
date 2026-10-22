@@ -62,9 +62,11 @@ export class AlbertClient {
     limit?: number;
     method?: "hybrid" | "semantic" | "lexical";
     scoreThreshold?: number;
+    signal?: AbortSignal;
   }): Promise<SearchHit[]> {
     const response = await this.request("/v1/search", {
       method: "POST",
+      signal: params.signal,
       body: JSON.stringify({
         query: params.query,
         collection_ids: params.collectionIds,
@@ -114,7 +116,11 @@ export class AlbertClient {
         const { done, value } = await reader.read();
         if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
+        // Normalise CRLF framing: the SSE spec allows it, and searching for
+        // "\n\n" alone would never find a boundary and drop the whole answer.
+        buffer += decoder
+          .decode(value, { stream: true })
+          .replace(/\r\n/g, "\n");
 
         // SSE frames are separated by a blank line; keep any trailing partial
         // frame in the buffer for the next read.
@@ -129,6 +135,7 @@ export class AlbertClient {
         }
       }
 
+      buffer += decoder.decode();
       const tail = parseSSEFrame(buffer);
       if (tail && tail !== DONE) yield tail;
     } finally {

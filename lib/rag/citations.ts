@@ -24,9 +24,17 @@ export function buildCitationUrl(
   page: number | null,
 ): string {
   if (page === null) return sourceUrl;
-  const [base, existingFragment] = sourceUrl.split("#", 2);
-  if (existingFragment) return `${base}#${existingFragment}&page=${page}`;
-  return `${base}#page=${page}`;
+  // Split on the first "#" only: a fragment may itself contain "#", and
+  // `split("#", 2)` would truncate it.
+  const hashIndex = sourceUrl.indexOf("#");
+  const base = hashIndex === -1 ? sourceUrl : sourceUrl.slice(0, hashIndex);
+  const fragment = hashIndex === -1 ? "" : sourceUrl.slice(hashIndex + 1);
+
+  if (!fragment) return `${base}#page=${page}`;
+  // A fragment that already sets the page wins: appending a second `page=`
+  // gives `#page=5&page=3`, where viewers honour the first value.
+  if (/(?:^|&)page=/.test(fragment)) return sourceUrl;
+  return `${base}#${fragment}&page=${page}`;
 }
 
 function readPage(metadata: ChunkMetadata | null | undefined): number | null {
@@ -42,6 +50,15 @@ function readPage(metadata: ChunkMetadata | null | undefined): number | null {
 }
 
 /**
+ * Only absolute http(s) sources are rendered as links. `/v1/search` returns
+ * whatever metadata was indexed, and a `javascript:` URL would become a
+ * clickable script in the page the widget is embedded in.
+ */
+function isSafeSourceUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+/**
  * Turns raw search hits into numbered citations. Hits without a source URL are
  * dropped: a citation that cannot be opened is worse than no citation.
  */
@@ -52,6 +69,7 @@ export function toCitations(hits: SearchHit[]): Citation[] {
     const metadata = hit.chunk.metadata ?? {};
     const sourceUrl = metadata.source_url;
     if (typeof sourceUrl !== "string" || sourceUrl.length === 0) continue;
+    if (!isSafeSourceUrl(sourceUrl)) continue;
 
     const page = readPage(metadata);
     const title =
@@ -95,6 +113,7 @@ export function buildContextBlocks(hits: SearchHit[]): ContextBlock[] {
     const metadata = hit.chunk.metadata ?? {};
     const sourceUrl = metadata.source_url;
     if (typeof sourceUrl !== "string" || sourceUrl.length === 0) continue;
+    if (!isSafeSourceUrl(sourceUrl)) continue;
 
     const page = readPage(metadata);
     const content = hit.chunk.content.trim();

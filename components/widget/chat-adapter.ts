@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChatModelAdapter, ThreadMessage } from "@assistant-ui/react";
+import { LIMITS } from "@/lib/config";
 import type { Citation } from "@/lib/rag/citations";
 import type { StreamEvent } from "@/lib/rag/stream-protocol";
 
@@ -32,7 +33,9 @@ export function messageToText(message: ThreadMessage): string {
 
 /**
  * Collects the earlier turns of the thread, excluding the message currently
- * being answered (the last one), which travels as `question`.
+ * being answered (the last one), which travels as `question`. The result is
+ * capped at the same bound the server validates, so a long conversation keeps
+ * working instead of failing the schema on every later turn.
  */
 export function collectHistory(messages: readonly ThreadMessage[]) {
   return messages
@@ -42,7 +45,8 @@ export function collectHistory(messages: readonly ThreadMessage[]) {
         message.role === "user" || message.role === "assistant",
     )
     .map((message) => ({ role: message.role, content: messageToText(message) }))
-    .filter((message) => message.content.length > 0);
+    .filter((message) => message.content.length > 0)
+    .slice(-LIMITS.maxHistoryEntries);
 }
 
 export function citationsToParts(citations: Citation[]): ContentPart[] {
@@ -75,8 +79,17 @@ export async function* runChat(params: {
   });
 
   if (!response.ok || !response.body) {
-    await response.text().catch(() => "");
-    throw new Error(`Le service a renvoyé ${response.status}.`);
+    const body = await response.text().catch(() => "");
+    let detail = "";
+    try {
+      const parsed = JSON.parse(body) as { error?: string };
+      detail = parsed.error ?? "";
+    } catch {
+      detail = "";
+    }
+    throw new Error(
+      detail || `Le service a renvoyé ${response.status}.`,
+    );
   }
 
   const reader = response.body.getReader();
@@ -99,7 +112,13 @@ export async function* runChat(params: {
         newline = buffer.indexOf("\n");
         if (!line) continue;
 
-        const event = JSON.parse(line) as StreamEvent;
+        let event: StreamEvent;
+        try {
+          event = JSON.parse(line) as StreamEvent;
+        } catch {
+          // A truncated or injected line must not kill the answer in progress.
+          continue;
+        }
 
         if (event.type === "sources") {
           sources = citationsToParts(event.sources);

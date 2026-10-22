@@ -38,7 +38,7 @@ describe("extractPdfSources", () => {
     expect(first.updated).toBe("2026-10-09T00:00:00.000Z");
   });
 
-  it("ignores a PDF URL with a query string after the extension", () => {
+  it("keeps a PDF URL that carries a query string", () => {
     const sources = extractPdfSources([
       {
         id: "q",

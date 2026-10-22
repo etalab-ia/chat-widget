@@ -147,3 +147,26 @@ describe("buildContextBlocks", () => {
     }
   });
 });
+
+describe("citation URL guards", () => {
+  it("drops a chunk whose source URL is not an absolute http(s) URL", () => {
+    const citations = toCitations([
+      hit({ id: 1, metadata: { source_url: "javascript:alert(1)", page: 1 } }),
+      hit({ id: 2, metadata: { source_url: "https://e.org/ok.pdf", page: 2 } }),
+    ]);
+    expect(citations).toHaveLength(1);
+    expect(citations[0].url).toBe("https://e.org/ok.pdf#page=2");
+  });
+
+  it("keeps a fragment that already contains a hash", () => {
+    expect(buildCitationUrl("https://e.org/a.pdf#zoom=1#p2", 4)).toBe(
+      "https://e.org/a.pdf#zoom=1#p2&page=4",
+    );
+  });
+
+  it("does not append a second page value", () => {
+    expect(buildCitationUrl("https://e.org/a.pdf#page=5", 3)).toBe(
+      "https://e.org/a.pdf#page=5",
+    );
+  });
+});

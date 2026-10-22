@@ -57,3 +57,22 @@ describe("encodeEvent", () => {
     expect(encoded.trimEnd().split("\n")).toHaveLength(1);
   });
 });
+
+describe("history bound", () => {
+  it("accepts the number of entries the adapter can send", async () => {
+    const { LIMITS } = await import("@/lib/config");
+    const history = Array.from({ length: LIMITS.maxHistoryEntries }, () => ({
+      role: "user" as const,
+      content: "x",
+    }));
+    expect(chatRequestSchema.safeParse({ question: "q", history }).success).toBe(
+      true,
+    );
+    expect(
+      chatRequestSchema.safeParse({
+        question: "q",
+        history: [...history, { role: "user", content: "y" }],
+      }).success,
+    ).toBe(false);
+  });
+});

@@ -69,6 +69,7 @@ export async function POST(request: Request) {
           collectionIds: config.collectionIds,
           limit: LIMITS.searchResults,
           method: "hybrid",
+          signal: upstream.signal,
         });
 
         const blocks = buildContextBlocks(hits);
