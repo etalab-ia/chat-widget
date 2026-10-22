@@ -123,7 +123,7 @@ function AnswerText({ text }: { text: string }) {
           return (
             <div key={index} className="flex gap-2 pl-0.5">
               <span className="shrink-0 tabular-nums text-slate-500">
-                {index + 1}.
+                {block.number}.
               </span>
               <p className="flex-1">{block.text}</p>
             </div>

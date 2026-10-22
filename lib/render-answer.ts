@@ -11,7 +11,7 @@
 export type AnswerBlock =
   | { kind: "paragraph"; text: string }
   | { kind: "bullet"; text: string }
-  | { kind: "ordered"; text: string };
+  | { kind: "ordered"; text: string; number: number };
 
 export function parseAnswer(raw: string): AnswerBlock[] {
   const text = raw
@@ -61,7 +61,13 @@ export function parseAnswer(raw: string): AnswerBlock[] {
     const ordered = /^(\d+)[.)]\s+(.*)$/.exec(trimmed);
     if (ordered) {
       flushParagraph();
-      blocks.push({ kind: "ordered", text: ordered[2].trim() });
+      // Keep the model's own number: a list that follows a paragraph starts at
+      // block index 1, so numbering from the array position would show "2.".
+      blocks.push({
+        kind: "ordered",
+        text: ordered[2].trim(),
+        number: Number.parseInt(ordered[1], 10),
+      });
       continue;
     }
 

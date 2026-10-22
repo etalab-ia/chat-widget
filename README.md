@@ -113,8 +113,11 @@ Le seul état est celui du fil de conversation, conservé en mémoire du navigat
 - La clé Albert reste côté serveur ; elle n'est jamais incluse dans un bundle client.
 - La route `/api/chat` valide la requête (longueur de question, historique borné) avant tout appel amont.
 - Les documents ouverts par les citations le sont avec `rel="noopener noreferrer"`.
-- `gitleaks` en pre-commit et en CI, `OSV-Scanner` en CI, Dependabot avec un délai de 7 jours.
 - pnpm impose un délai minimum d'une semaine avant d'accepter une nouvelle version de paquet (`minimumReleaseAge: 10080`).
+- `gitleaks` est configuré en pre-commit (`.pre-commit-config.yaml`), à activer par `pre-commit install`.
+- Dependabot est actif (`.github/dependabot.yml`), avec un délai de 7 jours avant de proposer une version publiée.
+
+Les workflows de CI (lint, typecheck, tests, build, `gitleaks`, `OSV-Scanner`) sont écrits mais **pas encore versionnés** : les jetons disponibles n'ont pas la portée `workflow` requise par GitHub pour créer un fichier sous `.github/workflows/`, et le dépôt n'est pas encore dans l'installation de l'application GitHub. Tant qu'ils ne sont pas ajoutés, aucune analyse ne s'exécute automatiquement sur les pushs et les pull requests, et le hook `gitleaks` ne protège que les postes où `pre-commit install` a été lancé.
 
 ## Limites du POC
 

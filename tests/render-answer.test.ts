@@ -29,7 +29,21 @@ describe("parseAnswer", () => {
   it("renders numbered items as ordered entries", () => {
     const blocks = parseAnswer("1. segmenter\n2. journaliser");
     expect(blocks.map((block) => block.kind)).toEqual(["ordered", "ordered"]);
-    expect(blocks[1]).toEqual({ kind: "ordered", text: "journaliser" });
+    expect(blocks[1]).toEqual({ kind: "ordered", text: "journaliser", number: 2 });
+  });
+
+  it("keeps a list's own numbering when it follows another block", () => {
+    const blocks = parseAnswer("Recommandations :\n1. segmenter\n2. journaliser");
+    expect(blocks).toEqual([
+      { kind: "paragraph", text: "Recommandations :" },
+      { kind: "ordered", text: "segmenter", number: 1 },
+      { kind: "ordered", text: "journaliser", number: 2 },
+    ]);
+  });
+
+  it("honours a list that starts at a number other than one", () => {
+    const blocks = parseAnswer("3. troisième\n4. quatrième");
+    expect(blocks.map((block) => (block.kind === "ordered" ? block.number : null))).toEqual([3, 4]);
   });
 
   it("joins wrapped lines into one paragraph", () => {
