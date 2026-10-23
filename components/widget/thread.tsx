@@ -189,19 +189,6 @@ function PlainText({ text }: { text: string }) {
 
 function AssistantMessage() {
   const sources = useAnswerSources();
-  const answer = useAuiState((state) =>
-    state.message.parts
-      .filter((part) => part.type === "text")
-      .map((part) => (part.type === "text" ? part.text : ""))
-      .join(" "),
-  );
-
-  // Citations are rendered inside the sentences that use them. If an answer
-  // arrives with no marker at all, the sources would have nowhere to appear and
-  // could not be checked, so they are listed once as a fallback.
-  const citesInline = parseSpans(answer, sources).some(
-    (span) => span.kind === "citation",
-  );
 
   return (
     <div className="mb-4 max-w-full">
@@ -216,45 +203,6 @@ function AssistantMessage() {
         />
         <WaitingDots />
       </div>
-      {!citesInline && answer.trim().length > 0 ? (
-        <FallbackSources sources={sources} />
-      ) : null}
-    </div>
-  );
-}
-
-/** Lists the sources when the answer cited none of them inline. */
-function FallbackSources({
-  sources,
-}: {
-  sources: ReadonlyMap<number, AnswerSource>;
-}) {
-  if (sources.size === 0) return null;
-
-  return (
-    <div className="mt-3 border-t border-slate-200 pt-2.5">
-      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-        Sources
-      </p>
-      <ul className="flex flex-col gap-1">
-        {[...sources.values()].map((source) => (
-          <li key={source.marker}>
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-start gap-1.5 rounded-sm text-[12.5px] leading-snug text-slate-600 hover:text-[#000091] hover:underline"
-            >
-              <span className="font-medium text-slate-500">
-                [{source.marker}]
-              </span>
-              <span>
-                {source.page === null ? "Ouvrir le document" : `Page ${source.page}`}
-              </span>
-            </a>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

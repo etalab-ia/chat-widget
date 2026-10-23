@@ -120,23 +120,3 @@ describe("parseAnswer", () => {
   });
 });
 
-describe("citation fallback decision", () => {
-  // The widget shows the source list only when no marker resolved inline, so
-  // this predicate is what keeps an uncited answer from losing its sources.
-  const citesInline = (answer: string) =>
-    parseSpans(answer, sources).some((span) => span.kind === "citation");
-
-  it("reports inline citations when a marker resolves", () => {
-    expect(citesInline("La MFA est requise [1].")).toBe(true);
-  });
-
-  it("falls back when the answer has no marker", () => {
-    expect(citesInline("Une réponse sans citation.")).toBe(false);
-  });
-
-  it("falls back when the markers do not resolve", () => {
-    // "[9]" points at nothing, so the inline path renders it as plain text and
-    // the source list must still be shown.
-    expect(citesInline("Voir [9].")).toBe(false);
-  });
-});

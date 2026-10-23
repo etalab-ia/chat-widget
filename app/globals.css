@@ -34,3 +34,12 @@ body:has([data-embed-surface]) button[aria-label^="Ouvrir"] {
 body:has([data-embed-surface]) button[aria-label^="Ouvrir"] svg {
   stroke: #fff;
 }
+
+/* DSFR gives every paragraph a 24px bottom margin. The widget spaces its own
+   blocks with flex gaps, so inside the embed surface that margin is not wanted:
+   in the header it made the flex row taller and pushed the title up, leaving
+   the logo and the name visibly off-centre. Unlayered, because a Tailwind
+   utility such as `mb-0` would lose to DSFR's rule. */
+body:has([data-embed-surface]) p {
+  margin-bottom: 0;
+}
