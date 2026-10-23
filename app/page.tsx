@@ -57,8 +57,12 @@ export default function Home() {
               agrandissement sont déjà gérés par le widget.
             </p>
 
-            <pre className={fr.cx("fr-mt-3w")}>
-              <code className="rounded border border-[var(--border-default-grey)] bg-[var(--background-alt-grey)] p-4 text-[0.8125rem] leading-relaxed text-[var(--text-default-grey)] whitespace-pre-wrap break-words">
+            {/* The box is the <pre> and the <code> stays a plain block inside
+                it. Padding on an inline <code> does not grow the <pre>, so
+                styling the inner element left the text spilling over its own
+                background. */}
+            <pre className="mt-3w overflow-x-auto rounded border border-[var(--border-default-grey)] bg-[var(--background-alt-grey)] p-4 font-mono text-[0.8125rem] leading-relaxed text-[var(--text-default-grey)]">
+              <code className="block whitespace-pre-wrap break-words">
                 {EMBED_SNIPPET}
               </code>
             </pre>

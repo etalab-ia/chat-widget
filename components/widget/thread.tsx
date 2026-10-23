@@ -7,9 +7,9 @@ import {
   ThreadPrimitive,
   useAuiState,
 } from "@assistant-ui/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { parseAnswer, parseSpans, type AnswerSource } from "@/lib/render-answer";
-import { ChatIcon, SendIcon, StopIcon } from "./icons";
+import { SendIcon, StopIcon } from "./icons";
 
 /**
  * The sources attached to the assistant message being rendered, indexed by
@@ -47,15 +47,84 @@ const SUGGESTIONS = [
 ];
 
 export function WidgetThread() {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const messageCount = useAuiState((state) => state.thread.messages.length);
+
+  // Put each new question at the top of the panel. The library's own anchor
+  // handling left a question asked later in a long thread far below the
+  // viewport, so the reader saw the end of the previous answer instead of the
+  // question they had just sent.
+  //
+  // The alignment has to run more than once: at the instant the question
+  // appears the answer below it is still empty, so the viewport cannot scroll
+  // far enough and the position clamps short. It is re-applied as the answer
+  // grows, and abandoned as soon as the reader scrolls by hand.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || messageCount === 0) return;
+
+    let expected: number | null = null;
+    let cancelled = false;
+
+    const align = () => {
+      if (cancelled) return;
+      // The reader took over: stop moving the viewport under them.
+      if (expected !== null && Math.abs(viewport.scrollTop - expected) > 2) {
+        cancelled = true;
+        return;
+      }
+
+      const asked = viewport.querySelectorAll("[data-role='user-message']");
+      const latest = asked[asked.length - 1];
+      if (!latest) return;
+
+      const offset =
+        latest.getBoundingClientRect().top -
+        viewport.getBoundingClientRect().top +
+        viewport.scrollTop;
+      const target = Math.max(0, offset - 16);
+      if (Math.abs(viewport.scrollTop - target) > 1) {
+        viewport.scrollTop = target;
+      }
+      expected = viewport.scrollTop;
+    };
+
+    // The answer below streams in over several seconds, and the target stays
+    // clamped until it is tall enough. Watching the subtree means the
+    // alignment follows the growth instead of guessing at timings.
+    let queued = false;
+    const schedule = () => {
+      if (queued || cancelled) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        align();
+      });
+    };
+
+    const observer = new MutationObserver(schedule);
+    observer.observe(viewport, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    const frame = requestAnimationFrame(align);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [messageCount]);
+
   return (
     <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col bg-white">
-      {/* The reader starts at the first line of the answer, not at its last.
-          `turnAnchor="top"` anchors the turn at the top of the viewport, and the
-          three "scroll to bottom" defaults are switched off: on run start they
-          scrolled straight past the beginning of the answer, which is the
-          behaviour they are meant to prevent here. */}
+      {/* Every automatic scroll-to-bottom is off: on run start and on each
+          streamed chunk they carried the reader to the last line of the answer.
+          The question is positioned explicitly above instead. */}
       <ThreadPrimitive.Viewport
-        turnAnchor="top"
+        ref={viewportRef}
         autoScroll={false}
         scrollToBottomOnRunStart={false}
         scrollToBottomOnInitialize={false}
@@ -79,15 +148,9 @@ export function WidgetThread() {
 function EmptyState() {
   return (
     <div className="flex flex-1 flex-col justify-center gap-4 py-6">
+      {/* The panel header already shows the name and the logo, so the empty
+          state carries only the explanation. */}
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-2">
-          <span className="flex size-7 items-center justify-center rounded-full bg-[#000091] text-white">
-            <ChatIcon className="size-4" />
-          </span>
-          <p className="text-[15px] font-semibold text-slate-900">
-            Assistant ANSSI
-          </p>
-        </div>
         <p className="text-[13px] leading-relaxed text-slate-600">
           Posez une question sur les guides publics de l&apos;ANSSI. Les
           réponses citent les documents et les pages utilisés.
@@ -112,7 +175,7 @@ function EmptyState() {
 
 function UserMessage() {
   return (
-    <div className="mb-3 flex justify-end">
+    <div className="mb-3 flex justify-end" data-role="user-message">
       <div className="max-w-[85%] rounded-lg rounded-br-sm bg-[#000091] px-3 py-2 text-[13px] leading-relaxed text-white">
         <MessagePrimitive.Parts components={{ Text: PlainText }} />
       </div>
