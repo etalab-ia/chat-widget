@@ -53,8 +53,8 @@ export default function Home() {
             <h2 className={fr.cx("fr-mt-6w")}>Ajouter l&apos;assistant à une page</h2>
             <p>
               Copiez ce bloc dans la page où l&apos;assistant doit apparaître.
-              C&apos;est la seule chose à faire : le bouton, la fenêtre et le
-              redimensionnement sont déjà gérés par le widget.
+              C&apos;est la seule chose à faire. Le bouton, la fenêtre et son
+              agrandissement sont déjà gérés par le widget.
             </p>
 
             <pre className={fr.cx("fr-mt-3w")}>
@@ -74,10 +74,10 @@ export default function Home() {
               title="Ce démonstrateur a des limites"
               iconId="ri-information-line"
             >
-              Le corpus ne contient que des documents publics de l&apos;ANSSI.
-              Une réponse peut être incomplète : les liens vers les pages citées
-              servent à le vérifier. Le service est plafonné à 500 questions par
-              jour et à 10 questions par minute et par visiteur.
+              L&apos;assistant ne cherche que dans les documents publics de
+              l&apos;ANSSI. Une réponse peut être incomplète : les liens vers les
+              pages citées servent à le vérifier. Le service accepte 500
+              questions par jour, et 10 questions par minute et par visiteur.
             </CallOut>
           </div>
         </div>
