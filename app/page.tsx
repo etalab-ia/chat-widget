@@ -81,7 +81,8 @@ export default function Home() {
               L&apos;assistant ne cherche que dans les documents publics de
               l&apos;ANSSI. Une réponse peut être incomplète : les liens vers les
               pages citées servent à le vérifier. Le service accepte 500
-              questions par jour, et 10 questions par minute et par visiteur.
+              questions par jour au total, et 10 questions par minute et par
+              adresse&nbsp;IP.
             </CallOut>
           </div>
         </div>
