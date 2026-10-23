@@ -79,7 +79,8 @@ L'application est un Next.js standard (App Router). Elle exige :
 
 - `ALBERT_API_KEY` côté serveur ;
 - `ALBERT_COLLECTION_FR` et `ALBERT_COLLECTION_EN` ;
-- éventuellement `ALBERT_CHAT_MODEL` (par défaut `gpt-oss-120b`).
+- éventuellement `ALBERT_CHAT_MODEL` (par défaut `gpt-oss-120b`) ;
+- éventuellement `EMBED_ALLOWED_PARENTS`, la liste des origines autorisées à afficher `/embed` dans une iframe (voir « Intégration dans une page hôte »). Vide, seule la page `/` du service peut l'afficher.
 
 La variable `ALBERT_BASE_URL` permet de cibler une autre instance de l'API.
 
@@ -92,12 +93,18 @@ Le seul état est celui du fil de conversation, conservé en mémoire du navigat
   src="https://<hote>/embed"
   title="Assistant ANSSI"
   style="position:fixed;right:16px;bottom:16px;width:88px;height:88px;border:0;z-index:50"
+  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+  allow="camera 'none'; microphone 'none'; geolocation 'none'"
+  referrerpolicy="strict-origin-when-cross-origin"
 ></iframe>
 
 <script>
+  const WIDGET_ORIGIN = "https://<hote>";
+
   // L'iframe ne peut pas se dimensionner sur son contenu : le widget annonce
   // son état et la page hôte ajuste le cadre.
   window.addEventListener("message", (event) => {
+    if (event.origin !== WIDGET_ORIGIN) return;
     const frame = document.querySelector("iframe[title='Assistant ANSSI']");
     if (!frame || event.source !== frame.contentWindow) return;
     const data = event.data;
@@ -108,9 +115,23 @@ Le seul état est celui du fil de conversation, conservé en mémoire du navigat
 </script>
 ```
 
+Deux réglages côté serveurs complètent le bloc :
+
+- le service n'accepte d'être affiché que par `'self'` et par les origines listées dans `EMBED_ALLOWED_PARENTS` (en-tête `Content-Security-Policy: frame-ancestors` sur `/embed`) ; une page non listée reçoit un cadre vide. La liste est lue au chargement de la configuration, donc un redéploiement est nécessaire pour la modifier ;
+- la page hôte doit autoriser l'adresse du widget dans sa propre règle `frame-src`.
+
+Le redimensionnement évite `postMessage(..., "*")` : le widget adresse son message à l'origine du parent, qu'il lit dans `document.referrer`. C'est la raison du `referrerpolicy="strict-origin-when-cross-origin"` : pour une page hôte sur un autre domaine, le navigateur ne transmet que l'origine, jamais le chemin ni les paramètres ; pour une page de même origine, le widget n'a rien de plus à savoir. Si la page hôte impose `referrerpolicy="no-referrer"`, le référent est vide et le message retombe sur `"*"` — il ne contient alors que l'état ouvert/fermé.
+
+La liste des parents est volontairement limitée à des origines nues : une entrée avec un chemin ou une requête ne restreindrait pas `frame-ancestors` comme elle en a l'air, et un joker (`https://*.exemple.gouv.fr`) serait accepté par l'en-tête mais jamais reconnu par le widget, qui compare des origines entières. Ces entrées sont écartées au chargement ; il faut lister chaque page hôte.
+
 ## Sécurité
 
 - La clé Albert reste côté serveur ; elle n'est jamais incluse dans un bundle client.
+- L'iframe est confinée par `sandbox` : scripts et origine (nécessaires pour appeler `/api/chat`), ouverture des PDF cités dans un nouvel onglet. Ni navigation de la fenêtre hôte, ni formulaires, ni fenêtres modales, ni téléchargements. Sur une page hôte d'un autre domaine, un widget compromis ne peut donc pas rediriger l'utilisateur ni recouvrir l'interface. Sur la page de démonstration, l'iframe est de même origine : un bac à sable ne sépare pas deux documents de même origine, c'est le domaine distinct qui apporte cette séparation.
+- Les API de l'appareil sont refusées deux fois : par l'attribut `allow` de l'iframe et par l'en-tête `Permissions-Policy` du service (caméra, micro, position, capture d'écran, lecture du presse-papiers, paiement, USB…). Une iframe de même origine hériterait sinon des droits de la page hôte.
+- `/embed` porte `frame-ancestors` (qui peut l'afficher) et `/` porte `frame-ancestors 'none'` plus `frame-src 'self'` (la page de démonstration ne se laisse pas encadrer et n'encadre que son propre widget). Les autres en-têtes : `X-Content-Type-Options: nosniff` et `Referrer-Policy: strict-origin-when-cross-origin`.
+- Les messages de redimensionnement sont filtrés des deux côtés : la page hôte vérifie `event.source` **et** `event.origin` ainsi que la forme du message, et le widget adresse son message à une origine précise plutôt qu'à `"*"`.
+- Une politique de sécurité du contenu complète (scripts, styles) reste à écrire : le bootstrap DSFR utilise un script en ligne, qui demande soit un nonce par requête, soit un rendu dynamique. Les règles ci-dessus ne couvrent que l'encadrement.
 - La route `/api/chat` valide la requête (longueur de question, historique borné) avant tout appel amont.
 - Deux plafonds protègent la route : 10 questions par minute et par client, et 500 questions par jour pour l'ensemble du service. Les deux refusent avec un code 429 avant tout appel amont, donc une salve coûte une réponse JSON et non une recherche plus une complétion. Les plafonds se règlent par `ABUSE_MAX_PER_CLIENT` et `ABUSE_MAX_PER_DAY`.
 - Le plafond par client s'appuie sur `X-Real-IP` puis sur la première adresse `X-Forwarded-For`. Ces en-têtes sont contrôlés par le client lorsque le service est joignable directement : c'est une mesure d'équité, pas une authentification. Le plafond quotidien, lui, borne réellement le coût total.
