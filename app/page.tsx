@@ -241,7 +241,10 @@ export default function Home() {
       </main>
 
       <footer className="border-t border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-4xl flex-col gap-2 px-6 py-6 text-[11.5px] leading-relaxed text-slate-500 sm:flex-row sm:items-baseline sm:justify-between">
+        {/* Bottom padding reserves room for the floating trigger, which is
+            fixed to the viewport and would otherwise sit on top of the
+            footer once the page is scrolled to the end. */}
+        <div className="mx-auto flex max-w-4xl flex-col gap-2 px-6 pt-6 pb-24 text-[11.5px] leading-relaxed text-slate-500 sm:flex-row sm:items-baseline sm:justify-between">
           <p className="max-w-xl">
             Démonstration technique. Le corpus interrogé est composé de
             documents publics ; aucune donnée personnelle n&apos;est demandée.
