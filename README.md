@@ -99,9 +99,12 @@ Le seul état est celui du fil de conversation, conservé en mémoire du navigat
 ></iframe>
 
 <script>
+  const WIDGET_ORIGIN = "https://<hote>";
+
   // L'iframe ne peut pas se dimensionner sur son contenu : le widget annonce
   // son état et la page hôte ajuste le cadre.
   window.addEventListener("message", (event) => {
+    if (event.origin !== WIDGET_ORIGIN) return;
     const frame = document.querySelector("iframe[title='Assistant ANSSI']");
     if (!frame || event.source !== frame.contentWindow) return;
     const data = event.data;
@@ -118,6 +121,8 @@ Deux réglages côté serveurs complètent le bloc :
 - la page hôte doit autoriser l'adresse du widget dans sa propre règle `frame-src`.
 
 Le redimensionnement évite `postMessage(..., "*")` : le widget adresse son message à l'origine du parent, qu'il lit dans `document.referrer`. C'est la raison du `referrerpolicy="strict-origin-when-cross-origin"` : pour une page hôte sur un autre domaine, le navigateur ne transmet que l'origine, jamais le chemin ni les paramètres ; pour une page de même origine, le widget n'a rien de plus à savoir. Si la page hôte impose `referrerpolicy="no-referrer"`, le référent est vide et le message retombe sur `"*"` — il ne contient alors que l'état ouvert/fermé.
+
+La liste des parents est volontairement limitée à des origines nues : une entrée avec un chemin ou une requête ne restreindrait pas `frame-ancestors` comme elle en a l'air, et un joker (`https://*.exemple.gouv.fr`) serait accepté par l'en-tête mais jamais reconnu par le widget, qui compare des origines entières. Ces entrées sont écartées au chargement ; il faut lister chaque page hôte.
 
 ## Sécurité
 

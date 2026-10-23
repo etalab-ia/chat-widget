@@ -29,10 +29,25 @@ export function isEmbedResizeMessage(value: unknown): value is EmbedResizeMessag
 }
 
 /**
+ * A scheme, a host and an optional port. Nothing else: `frame-ancestors` is a
+ * space- and semicolon-delimited grammar, so an entry carrying either character
+ * would be read as a second source or a second directive rather than as one
+ * origin. The URL parser lowercases the host and drops a default port, so the
+ * match is on its normalised output.
+ */
+const ORIGIN_PATTERN =
+  /^https?:\/\/(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:]+\])(?::\d+)?$/;
+
+/**
  * Origins allowed to frame the widget, from `EMBED_ALLOWED_PARENTS`
- * (comma-separated). Only bare http(s) origins are kept: a path, a query or a
- * wildcard would make the `frame-ancestors` directive mean something else than
- * what it reads like.
+ * (comma-separated).
+ *
+ * Only bare http(s) origins are kept. A path, a query or a fragment does not
+ * narrow `frame-ancestors` the way it looks like it should, and a wildcard
+ * (`https://*.example.com`) is accepted by the CSP parser but could never match
+ * in `resolveTargetOrigin`, which compares whole origins — so the frame would
+ * load while the widget fell back to a wildcard target. Both are refused here
+ * rather than silently half-applied: list every host page instead.
  */
 export function parseAllowedParents(raw: string | undefined): string[] {
   if (!raw) return [];
@@ -45,13 +60,13 @@ export function parseAllowedParents(raw: string | undefined): string[] {
     let origin: string;
     try {
       const url = new URL(candidate);
-      if (url.protocol !== "https:" && url.protocol !== "http:") continue;
       if (url.pathname !== "/" || url.search || url.hash) continue;
       origin = url.origin;
     } catch {
       continue;
     }
 
+    if (!ORIGIN_PATTERN.test(origin)) continue;
     origins.add(origin);
   }
 

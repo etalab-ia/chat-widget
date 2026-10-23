@@ -15,9 +15,12 @@ const EMBED_SNIPPET = `<iframe
 ></iframe>
 
 <script>
+  const WIDGET_ORIGIN = "https://<votre-hote>";
+
   // Une iframe ne peut pas se redimensionner elle-même : le widget annonce
   // s'il est ouvert ou fermé, et cette page ajuste le cadre.
   window.addEventListener("message", (event) => {
+    if (event.origin !== WIDGET_ORIGIN) return;
     const frame = document.querySelector("iframe[title='Assistant ANSSI']");
     if (!frame || event.source !== frame.contentWindow) return;
     const data = event.data;
@@ -112,13 +115,14 @@ export default function Home() {
               </li>
               <li>
                 <code>referrerpolicy</code> : votre page ne transmet que son
-                adresse d&apos;origine, jamais le chemin ni les paramètres
-                d&apos;adresse.
+                adresse d&apos;origine à un autre domaine, jamais le chemin ni
+                les paramètres d&apos;adresse.
               </li>
               <li>
                 Le script vérifie l&apos;origine et la forme du message avant
                 d&apos;agir, et n&apos;accepte un message que du cadre
-                lui-même.
+                lui-même. Remplacez <code>&lt;votre-hote&gt;</code> aux deux
+                endroits.
               </li>
             </ul>
             <p>

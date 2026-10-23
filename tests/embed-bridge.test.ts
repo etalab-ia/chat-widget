@@ -29,6 +29,25 @@ describe("parseAllowedParents", () => {
     ).toEqual([]);
   });
 
+  it("drops a wildcard, which the CSP parser would accept but the bridge cannot match", () => {
+    // `frame-ancestors https://*.example.com` loads the frame, but
+    // `resolveTargetOrigin` compares whole origins, so the widget would fall
+    // back to a wildcard target on every subdomain. Half-applied is worse than
+    // refused.
+    expect(parseAllowedParents("https://*.example.com")).toEqual([]);
+  });
+
+  it("drops an entry that would break the header grammar", () => {
+    // A `;` survives the URL parser in the host and would be read as the start
+    // of another CSP directive.
+    expect(parseAllowedParents("https://a.example;frame-src")).toEqual([]);
+    expect(parseAllowedParents("https://a.example;")).toEqual([]);
+  });
+
+  it("keeps a bracketed IPv6 origin", () => {
+    expect(parseAllowedParents("http://[::1]:3000")).toEqual(["http://[::1]:3000"]);
+  });
+
   it("normalises duplicates and trailing slashes", () => {
     expect(
       parseAllowedParents("https://a.example/,https://a.example,https://a.example/"),
@@ -104,6 +123,18 @@ describe("resolveTargetOrigin", () => {
     // unable to learn its origin.
     expect(
       resolveTargetOrigin({ ownOrigin, allowedParents: [], referrer: "" }),
+    ).toBe("*");
+  });
+
+  it("falls back to a wildcard when the referrer is not a usable URL", () => {
+    // `about:client` is what the spec suggests for a withheld referrer; its
+    // origin serialises as the string "null" and matches nothing.
+    expect(
+      resolveTargetOrigin({
+        ownOrigin,
+        allowedParents: [],
+        referrer: "about:client",
+      }),
     ).toBe("*");
   });
 });
