@@ -93,9 +93,22 @@ describe("citationsToParts", () => {
         sourceType: "url",
         id: "1",
         url: "https://e.org/a.pdf#page=12",
+        page: 12,
+        marker: 1,
         title: "Guide — page 12",
       },
     ]);
+  });
+
+  it("numbers the markers in the order the model cites them", () => {
+    // The marker is what "[n]" in the answer resolves against, so it must
+    // follow the citation order rather than the document id.
+    const parts = citationsToParts([
+      { id: "a", title: "Premier", page: 3, url: "https://e.org/a.pdf#page=3", score: 0.9 },
+      { id: "b", title: "Second", page: null, url: "https://e.org/b.pdf", score: 0.4 },
+    ]);
+    expect(parts.map((part) => "marker" in part && part.marker)).toEqual([1, 2]);
+    expect(parts.map((part) => "page" in part && part.page)).toEqual([3, null]);
   });
 
   it("omits the page from the title when it is unknown", () => {

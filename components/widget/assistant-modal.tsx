@@ -43,21 +43,16 @@ export function AssistantModal({
           className="z-50 flex h-[min(560px,calc(100dvh-6rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl outline-none data-[state=closed]:hidden"
         >
           <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="flex size-6 items-center justify-center rounded-full bg-[#000091] text-white">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#000091] text-white">
                 <ChatIcon className="size-3.5" />
               </span>
-              <div className="leading-tight">
-                <p className="text-[13px] font-semibold text-slate-900">
-                  Assistant ANSSI
-                </p>
-                <p className="text-[11px] text-slate-500">
-                  Guides publics · API Albert
-                </p>
-              </div>
+              <p className="truncate text-[13px] font-semibold text-slate-900">
+                Assistant ANSSI
+              </p>
             </div>
             <AssistantModalPrimitive.Trigger
-              className="flex size-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#000091]"
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#000091]"
               aria-label="Fermer l'assistant"
             >
               <CloseIcon className="size-4" />

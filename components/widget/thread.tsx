@@ -7,9 +7,38 @@ import {
   ThreadPrimitive,
   useAuiState,
 } from "@assistant-ui/react";
-import { parseAnswer } from "@/lib/render-answer";
+import { useMemo } from "react";
+import { parseAnswer, parseSpans, type AnswerSource } from "@/lib/render-answer";
 import { ChatIcon, SendIcon, StopIcon } from "./icons";
-import { MessageSources } from "./sources";
+
+/**
+ * The sources attached to the assistant message being rendered, indexed by
+ * their marker so "[2]" can link straight to the page it refers to.
+ */
+function useAnswerSources(): ReadonlyMap<number, AnswerSource> {
+  const parts = useAuiState((state) => state.message.parts);
+
+  return useMemo(() => {
+    const index = new Map<number, AnswerSource>();
+    for (const part of parts) {
+      if (part.type !== "source" || part.sourceType !== "url") continue;
+      const source = part as {
+        marker?: number;
+        url?: string;
+        page?: number | null;
+      };
+      if (typeof source.marker !== "number" || typeof source.url !== "string") {
+        continue;
+      }
+      index.set(source.marker, {
+        marker: source.marker,
+        url: source.url,
+        page: source.page ?? null,
+      });
+    }
+    return index;
+  }, [parts]);
+}
 
 const SUGGESTIONS = [
   "Quelles sont les recommandations pour segmenter un réseau ?",
@@ -20,7 +49,19 @@ const SUGGESTIONS = [
 export function WidgetThread() {
   return (
     <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col bg-white">
-      <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
+      {/* The reader starts at the first line of the answer, not at its last.
+          `turnAnchor="top"` anchors the turn at the top of the viewport, and the
+          three "scroll to bottom" defaults are switched off: on run start they
+          scrolled straight past the beginning of the answer, which is the
+          behaviour they are meant to prevent here. */}
+      <ThreadPrimitive.Viewport
+        turnAnchor="top"
+        autoScroll={false}
+        scrollToBottomOnRunStart={false}
+        scrollToBottomOnInitialize={false}
+        scrollToBottomOnThreadSwitch={false}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4"
+      >
         <AuiIf condition={(state) => state.thread.isEmpty}>
           <EmptyState />
         </AuiIf>
@@ -84,12 +125,27 @@ function PlainText({ text }: { text: string }) {
 }
 
 function AssistantMessage() {
+  const sources = useAnswerSources();
+  const answer = useAuiState((state) =>
+    state.message.parts
+      .filter((part) => part.type === "text")
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join(" "),
+  );
+
+  // Citations are rendered inside the sentences that use them. If an answer
+  // arrives with no marker at all, the sources would have nowhere to appear and
+  // could not be checked, so they are listed once as a fallback.
+  const citesInline = parseSpans(answer, sources).some(
+    (span) => span.kind === "citation",
+  );
+
   return (
     <div className="mb-4 max-w-full">
       <div className="text-[13px] leading-relaxed text-slate-800">
         <MessagePrimitive.Parts
           components={{
-            Text: AnswerText,
+            Text: (props) => <AnswerText {...props} sources={sources} />,
             Source: () => null,
             Image: () => null,
             File: () => null,
@@ -97,12 +153,56 @@ function AssistantMessage() {
         />
         <WaitingDots />
       </div>
-      <MessageSources />
+      {!citesInline && answer.trim().length > 0 ? (
+        <FallbackSources sources={sources} />
+      ) : null}
     </div>
   );
 }
 
-function AnswerText({ text }: { text: string }) {
+/** Lists the sources when the answer cited none of them inline. */
+function FallbackSources({
+  sources,
+}: {
+  sources: ReadonlyMap<number, AnswerSource>;
+}) {
+  if (sources.size === 0) return null;
+
+  return (
+    <div className="mt-3 border-t border-slate-200 pt-2.5">
+      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        Sources
+      </p>
+      <ul className="flex flex-col gap-1">
+        {[...sources.values()].map((source) => (
+          <li key={source.marker}>
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-start gap-1.5 rounded-sm text-[12.5px] leading-snug text-slate-600 hover:text-[#000091] hover:underline"
+            >
+              <span className="font-medium text-slate-500">
+                [{source.marker}]
+              </span>
+              <span>
+                {source.page === null ? "Ouvrir le document" : `Page ${source.page}`}
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function AnswerText({
+  text,
+  sources,
+}: {
+  text: string;
+  sources: ReadonlyMap<number, AnswerSource>;
+}) {
   if (!text) return null;
 
   const blocks = parseAnswer(text);
@@ -114,7 +214,9 @@ function AnswerText({ text }: { text: string }) {
           return (
             <div key={index} className="flex gap-2 pl-0.5">
               <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-slate-400" />
-              <p className="flex-1">{block.text}</p>
+              <p className="flex-1">
+                <InlineText text={block.text} sources={sources} />
+              </p>
             </div>
           );
         }
@@ -125,18 +227,62 @@ function AnswerText({ text }: { text: string }) {
               <span className="shrink-0 tabular-nums text-slate-500">
                 {block.number}.
               </span>
-              <p className="flex-1">{block.text}</p>
+              <p className="flex-1">
+                <InlineText text={block.text} sources={sources} />
+              </p>
             </div>
           );
         }
 
         return (
           <p key={index} className="whitespace-pre-line">
-            {block.text}
+            <InlineText text={block.text} sources={sources} />
           </p>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Renders one block of answer text, turning citation markers into links to the
+ * cited page. The marker keeps the "[n]" shape so the reader can still see
+ * which source a sentence comes from.
+ */
+function InlineText({
+  text,
+  sources,
+}: {
+  text: string;
+  sources: ReadonlyMap<number, AnswerSource>;
+}) {
+  const spans = parseSpans(text, sources);
+
+  if (spans.length === 0) return <>{text}</>;
+
+  return (
+    <>
+      {spans.map((span, index) => {
+        if (span.kind === "text") return <span key={index}>{span.text}</span>;
+
+        const where =
+          span.page === null ? "le document cité" : `la page ${span.page}`;
+
+        return (
+          <a
+            key={index}
+            href={span.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Ouvrir ${where}`}
+            aria-label={`Source ${span.marker}, ouvrir ${where}`}
+            className="ml-0.5 inline-flex items-center rounded-sm bg-[#000091]/8 px-1 text-[11.5px] font-medium text-[#000091] no-underline transition-colors hover:bg-[#000091] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#000091]"
+          >
+            {span.marker}
+          </a>
+        );
+      })}
+    </>
   );
 }
 

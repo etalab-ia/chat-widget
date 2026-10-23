@@ -16,3 +16,21 @@ body {
 body:has([data-embed-surface]) {
   background: transparent;
 }
+
+/* DSFR resets every `button` (background-color, border, appearance) because its
+   own components restyle plain buttons explicitly. The widget uses a plain
+   button for its floating trigger, so inside /embed the DSFR reset stripped
+   the trigger's blue background and left a white icon on a light page. These
+   lines restore what the trigger declares.
+
+   The colour has to move to the SVG: DSFR's `button { color: inherit }` wins
+   over Tailwind's `.text-white` utility, because DSFR's rules sit outside any
+   cascade layer while Tailwind's utilities sit in `@layer utilities`. */
+body:has([data-embed-surface]) button[aria-label^="Ouvrir"] {
+  appearance: auto;
+  background-color: #000091;
+}
+
+body:has([data-embed-surface]) button[aria-label^="Ouvrir"] svg {
+  stroke: #fff;
+}

@@ -13,6 +13,10 @@ type ContentPart =
       id: string;
       url: string;
       title?: string;
+      /** Page of the cited PDF, when the corpus provides one. */
+      page?: number | null;
+      /** 1-based position of the source in the answer, matching "[n]". */
+      marker?: number;
     };
 
 export type WidgetRunResult = {
@@ -50,11 +54,13 @@ export function collectHistory(messages: readonly ThreadMessage[]) {
 }
 
 export function citationsToParts(citations: Citation[]): ContentPart[] {
-  return citations.map((citation) => ({
+  return citations.map((citation, index) => ({
     type: "source" as const,
     sourceType: "url" as const,
     id: citation.id,
     url: citation.url,
+    page: citation.page,
+    marker: index + 1,
     title:
       citation.page === null
         ? citation.title
