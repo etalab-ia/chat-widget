@@ -20,11 +20,20 @@ describe("parseSpans", () => {
     expect(spans.filter((span) => span.kind === "citation")).toHaveLength(2);
   });
 
-  it("leaves an unknown marker as text", () => {
-    // A link to nothing is worse than a bare number: the marker stays visible
-    // but is not turned into an anchor.
-    const spans = parseSpans("Voir [7].", sources);
-    expect(spans).toEqual([{ kind: "text", text: "Voir [7]." }]);
+  it("drops a marker that indexes no source", () => {
+    // The model sometimes writes a number that is not one of its excerpts — a
+    // list position or an article reference. Printing it would show a citation
+    // the reader cannot follow, so it is removed and the text kept.
+    const spans = parseSpans("Voir [42].", sources);
+    expect(spans).toEqual([{ kind: "text", text: "Voir ." }]);
+  });
+
+  it("drops an unknown marker between two known ones", () => {
+    const spans = parseSpans("a [1] b [43] c", sources);
+    expect(spans.map((s) => s.kind)).toEqual(["text", "citation", "text"]);
+    expect(
+      spans.filter((s) => s.kind === "text").map((s) => s.text).join(""),
+    ).toBe("a  b  c");
   });
 
   it("carries an unknown page as null rather than guessing one", () => {

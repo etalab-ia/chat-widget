@@ -90,8 +90,10 @@ export function parseAnswer(raw: string): AnswerBlock[] {
  * can be rendered as links to the page they point at rather than as bracketed
  * numbers that refer to a list somewhere else.
  *
- * Only markers whose source is known become links: an unknown number is left
- * as literal text, since a link that goes nowhere is worse than a bare number.
+ * A marker with no matching source is dropped. The model occasionally emits a
+ * number that indexes nothing — a list position, or a reference to an article
+ * in the document — and showing it would put a citation in front of the reader
+ * that leads nowhere and cannot be checked.
  */
 export function parseSpans(
   text: string,
@@ -108,23 +110,40 @@ export function parseSpans(
     const marker = Number.parseInt(match[1], 10);
     const source = sources.get(marker);
 
-    if (!source) continue;
-
+    // Skip the marker itself, keeping any text before it.
     if (match.index > cursor) {
       spans.push({ kind: "text", text: text.slice(cursor, match.index) });
     }
+    cursor = match.index + match[0].length;
+
+    // An unknown number is attached to a source it does not have: leave it out
+    // rather than printing a bracketed number the reader cannot follow.
+    if (!source) continue;
+
     spans.push({
       kind: "citation",
       marker,
       page: source.page,
       url: source.url,
     });
-    cursor = match.index + match[0].length;
   }
 
   if (cursor < text.length) {
     spans.push({ kind: "text", text: text.slice(cursor) });
   }
 
-  return spans;
+  // A dropped marker splits one sentence into two text runs; join neighbours so
+  // the caller renders the text as it was written.
+  return spans.reduce<AnswerSpan[]>((merged, span) => {
+    const previous = merged[merged.length - 1];
+    if (span.kind === "text" && previous?.kind === "text") {
+      merged[merged.length - 1] = {
+        kind: "text",
+        text: previous.text + span.text,
+      };
+      return merged;
+    }
+    merged.push(span);
+    return merged;
+  }, []);
 }
