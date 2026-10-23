@@ -83,11 +83,6 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Le bouton de l'assistant est fixé en bas à droite de la fenêtre. Cette
-          bande lui réserve la place nécessaire pour qu'il ne recouvre pas le
-          pied de page une fois la page défilée jusqu'en bas. */}
-      <div aria-hidden="true" className="h-28" />
-
       <Footer
         accessibility="non compliant"
         contentDescription="Démonstrateur d'un assistant documentaire sur les guides publics de l'ANSSI, à des fins d'évaluation."
@@ -103,6 +98,12 @@ export default function Home() {
           title: "Accueil — Assistant ANSSI",
         }}
       />
+
+      {/* Le bouton de l'assistant est fixé en bas à droite de la fenêtre. Cette
+          bande vient après le pied de page, qui termine la page : sans elle, la
+          dernière ligne du pied de page arrive pile sous le bouton quand on
+          défile jusqu'en bas. */}
+      <div aria-hidden="true" className="h-28" />
 
       <EmbedFrame />
     </>
