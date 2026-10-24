@@ -1,0 +1,43 @@
+# OSV-Scanner checks dependencies against the OSV vulnerability database.
+# - Pull requests fail only for vulnerabilities introduced by the change.
+# - Weekly and main-branch scans report the full inventory without blocking.
+# See https://github.com/etalab-ia/chat-widget/issues/8
+
+name: OSV-Scanner
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  schedule:
+    - cron: "12 12 * * 1"
+
+permissions: {}
+
+jobs:
+  scan-scheduled:
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    with:
+      # Existing vulnerabilities belong in Code Scanning; the PR scan is the
+      # blocking gate for newly introduced ones.
+      fail-on-vuln: false
+
+  scan-pr:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    with:
+      fail-on-vuln: true
+      # Fork PRs receive a read-only GITHUB_TOKEN, so uploading SARIF would
+      # fail with a 403 regardless of the scan result. Their findings still
+      # appear in the job log and annotations.
+      upload-sarif: ${{ github.event_name == 'merge_group' || github.event.pull_request.head.repo.full_name == github.repository }}
