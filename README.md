@@ -136,8 +136,8 @@ La liste des parents est volontairement limitée à des origines nues : une entr
 - Deux plafonds protègent la route : 10 questions par minute et par client, et 500 questions par jour pour l'ensemble du service. Les deux refusent avec un code 429 avant tout appel amont, donc une salve coûte une réponse JSON et non une recherche plus une complétion. Les plafonds se règlent par `ABUSE_MAX_PER_CLIENT` et `ABUSE_MAX_PER_DAY`.
 - Le plafond par client s'appuie sur `X-Real-IP` puis sur la première adresse `X-Forwarded-For`. Ces en-têtes sont contrôlés par le client lorsque le service est joignable directement : c'est une mesure d'équité, pas une authentification. Le plafond quotidien, lui, borne réellement le coût total.
 - Les documents ouverts par les citations le sont avec `rel="noopener noreferrer"`.
-- pnpm impose un délai minimum d'une semaine avant d'accepter une nouvelle version de paquet (`minimumReleaseAge: 10080`).
-- `gitleaks` est configuré en pre-commit (`.pre-commit-config.yaml`), à activer par `pre-commit install`.
+- pnpm impose un délai minimum d'une semaine avant d'accepter une nouvelle version de paquet (`minimumReleaseAge: 10080`). Les deux exceptions exactes pour des correctifs de sécurité sont documentées dans `pnpm-workspace.yaml` ; les autres paquets restent soumis à ce délai.
+- `gitleaks` et `cve-lite` sont configurés en pre-commit (`.pre-commit-config.yaml`), à activer par `pre-commit install`. Le second analyse le lockfile Node et bloque les vulnérabilités de sévérité élevée ou critique avec `cve-lite . --fail-on high`.
 - OSV-Scanner compare les dépendances de chaque pull request à sa branche cible et échoue si elle introduit une nouvelle vulnérabilité. Un scan hebdomadaire et un scan à chaque push sur `main` alimentent aussi Code Scanning, sans bloquer sur les vulnérabilités déjà présentes.
 - Dependabot est actif (`.github/dependabot.yml`), avec un délai de 7 jours avant de proposer une version publiée.
 
