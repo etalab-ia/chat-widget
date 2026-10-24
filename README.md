@@ -149,7 +149,7 @@ Le secret `ALBERT_API_KEY` est stocké comme variable d'environnement secrète :
 
 ## CI/CD
 
-Le workflow `ci-cd.yml` exécute ESLint, TypeScript, les tests Vitest et le build Next.js sur chaque pull request et chaque push sur `main`. Sur `main`, le job `deploy` démarre seulement après la réussite de ces vérifications. Il construit et publie une image taguée `sha-<SHA complet du commit>`, met à jour le conteneur avec `scw container container update --wait`, vérifie l'image et l'état `ready` avec `scw container container get`, puis contrôle les réponses HTTP de `/` et `/embed`. Un dépassement de délai ou un échec de ces vérifications fait échouer le workflow.
+Le workflow `ci-cd.yml` exécute ESLint, TypeScript, les tests Vitest et le build Next.js sur chaque pull request et chaque push sur `main`. Sur `main`, le job `deploy` démarre seulement après la réussite de ces vérifications. Il construit et publie une image taguée `sha-<SHA complet du commit>`, met à jour le conteneur avec `scw container container update --wait`, vérifie l'image et l'état `ready` avec `scw container container get`, puis contrôle les réponses HTTP de `/`, `/embed` et `/embed.js`. Un dépassement de délai ou un échec de ces vérifications fait échouer le workflow.
 
 L'action officielle `scaleway/action-scw` installe et configure le CLI Scaleway avec une version explicitement épinglée. Le pipeline n'appelle donc pas directement l'API Scaleway : seules les vérifications HTTP publiques utilisent `curl`.
 
