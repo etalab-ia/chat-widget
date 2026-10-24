@@ -66,10 +66,30 @@ describe("chunkPageText", () => {
     expect(rejoined.replace(/\s+/g, " ").trim()).toBe(long.replace(/\s+/g, " ").trim());
   });
 
-  it("drops a trailing fragment below the minimum size when other chunks exist", () => {
+  it("merges a trailing fragment into the previous chunk instead of dropping it", () => {
     const body = "m".repeat(CHUNK_TARGET_CHARS);
     const chunks = chunkPageText(1, `${body}\n\ncourt`);
     expect(chunks).toHaveLength(1);
-    expect(chunks[0].content).not.toContain("court");
+    expect(chunks[0].content).toContain("court");
+    expect(chunks[0].content.endsWith("court")).toBe(true);
+  });
+
+  it("merges a short page opening into the paragraph that follows", () => {
+    const intro = "Ce chapitre présente les mesures de sécurité réseau.";
+    const long = "mot ".repeat(500).trim();
+    const chunks = chunkPageText(1, `${intro}\n\n${long}`);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    // The introduction is real content: it must stay, at the head of the first
+    // chunk, rather than disappearing because it is below the minimum size.
+    expect(chunks[0].content.startsWith(intro)).toBe(true);
+    const rejoined = chunks.map((chunk) => chunk.content).join(" ");
+    expect(rejoined.replace(/\s+/g, " ")).toContain(intro);
+  });
+
+  it("keeps a page whose only text is short as a single chunk", () => {
+    const chunks = chunkPageText(1, "Page de garde.");
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].content).toBe("Page de garde.");
   });
 });

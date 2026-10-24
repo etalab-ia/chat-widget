@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ThreadMessage } from "@assistant-ui/react";
 import {
   citationsToParts,
   collectHistory,
   messageToText,
+  runChat,
+  type WidgetRunResult,
 } from "@/components/widget/chat-adapter";
 import { LIMITS } from "@/lib/config";
 
@@ -116,5 +118,77 @@ describe("citationsToParts", () => {
       { id: "2", title: "Guide", page: null, url: "https://e.org/a.pdf", score: 0.1 },
     ]);
     expect(part).toMatchObject({ type: "source", title: "Guide" });
+  });
+});
+
+describe("runChat stream decoding", () => {
+  const encoder = new TextEncoder();
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Serves the given byte chunks as the `/api/chat` response body. */
+  function stubChatResponse(chunks: Uint8Array[]) {
+    vi.stubGlobal("fetch", async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const chunk of chunks) controller.enqueue(chunk);
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200 });
+    });
+  }
+
+  function deltaLine(text: string): string {
+    return `${JSON.stringify({ type: "delta", text })}\n`;
+  }
+
+  async function collectUpdates(): Promise<WidgetRunResult[]> {
+    const updates: WidgetRunResult[] = [];
+    for await (const update of runChat({ question: "question", history: [] })) {
+      updates.push(update);
+    }
+    return updates;
+  }
+
+  function lastText(updates: WidgetRunResult[]): string {
+    const part = updates
+      .at(-1)
+      ?.content.find((candidate) => candidate.type === "text");
+    return part && part.type === "text" ? part.text : "";
+  }
+
+  it("keeps the tail of the answer when the last event has no trailing newline", async () => {
+    const head = encoder.encode(deltaLine("début "));
+    const last = encoder.encode(JSON.stringify({ type: "delta", text: "fin é" }));
+    // Split inside the final "é" (two bytes in UTF-8), and end the stream
+    // without a newline: without flushing the decoder and terminating the last
+    // line, everything after the split is lost.
+    const cut = last.lastIndexOf(0xc3);
+
+    stubChatResponse([head, last.slice(0, cut), last.slice(cut)]);
+
+    expect(lastText(await collectUpdates())).toBe("début fin é");
+  });
+
+  it("decodes a multi-byte character split across two reads mid-stream", async () => {
+    const first = encoder.encode(deltaLine("premier "));
+    const second = encoder.encode(deltaLine("second é"));
+    const cut = second.lastIndexOf(0xc3);
+
+    stubChatResponse([first, second.slice(0, cut), second.slice(cut)]);
+
+    expect(lastText(await collectUpdates())).toBe("premier second é");
+  });
+
+  it("stops at the done event and keeps the answer built so far", async () => {
+    stubChatResponse([
+      encoder.encode(deltaLine("réponse") + `${JSON.stringify({ type: "done" })}\n`),
+      encoder.encode(deltaLine("ignoré")),
+    ]);
+
+    expect(lastText(await collectUpdates())).toBe("réponse");
   });
 });

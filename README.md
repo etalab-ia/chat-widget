@@ -24,12 +24,15 @@ Le navigateur ne reçoit jamais la clé Albert : seule la route serveur `/api/ch
 Le découpage automatique de l'API Albert ne conserve pas les numéros de page. L'ingestion découpe donc chaque PDF page par page et attache à chaque chunk :
 
 - `page`, le numéro de page ;
-- `citation_url`, l'URL du PDF suivie de `#page=N`, qui ouvre le document à la bonne page dans un lecteur PDF ;
 - `guide_id`, `guide_title`, `source_url`, `collection`, `extraction`.
+
+L'URL de citation (le PDF suivi de `#page=N`, qui ouvre le document à la bonne page) n'est pas stockée : elle se déduit de `source_url` et de `page`, et `buildCitationUrl` est la seule fonction qui la construit. Un seul champ de vérité, donc pas de risque d'URL incohérente entre l'index et l'affichage.
 
 Ces métadonnées sont conservées à l'indexation et restituées par `/v1/search`, ce qui permet au widget d'afficher une liste de sources cliquables sous chaque réponse.
 
-Les PDF dont la couche texte est inexploitable passent par l'OCR Albert (`mistral-ocr-2512`), qui renvoie du markdown page par page.
+`pdftotext` est appelé une fois pour tout le document et son résultat est découpé sur les sauts de page. La décision de passer par l'OCR est prise page par page : une page dont la couche texte est trop pauvre est relue par l'OCR Albert (`mistral-ocr-2512`), qui renvoie du markdown page par page, tandis que les autres pages gardent leur texte d'origine. Un PDF mixte (certaines pages scannées) est donc indexé en entier ; `extraction` vaut alors `mixed` au niveau du document et `pdf` ou `ocr` au niveau de chaque chunk.
+
+L'OCR est appelé sur le document entier dès qu'une seule page en a besoin, car l'endpoint prend l'URL du PDF et non une page : un PDF mixte coûte donc un OCR complet. Ce coût est accepté, une page scannée oubliée étant invisible dans le corpus.
 
 ## Développement
 

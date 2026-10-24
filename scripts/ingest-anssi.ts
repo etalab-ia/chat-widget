@@ -8,8 +8,11 @@
  *   pnpm ingest -- --all --limit 10
  *
  * The script is resumable by design: it only creates collections when they do
- * not already exist, and it never deletes documents. Re-running it adds the
- * catalogue's current PDFs; a full rebuild means deleting the collections first.
+ * not already exist, and it never deletes an indexed document. The one
+ * exception is a document whose chunks could not all be written: it is removed
+ * so a failed guide never stays searchable with part of its text. Re-running
+ * the script adds the catalogue's current PDFs; a full rebuild means deleting
+ * the collections first.
  */
 import { AlbertClient } from "../lib/albert/client";
 import { fetchCatalogue, extractPdfSources, groupByLanguage, type PdfSource } from "./lib/catalogue";
@@ -138,7 +141,7 @@ function summarize(outcomes: IngestOutcome[]) {
     0,
   );
   const ocrCount = indexed.filter(
-    (item) => item.status === "indexed" && item.extraction === "ocr",
+    (item) => item.status === "indexed" && item.extraction !== "pdf",
   ).length;
 
   console.log(

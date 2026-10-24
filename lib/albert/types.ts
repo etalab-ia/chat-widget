@@ -4,7 +4,6 @@ export type ChunkMetadata = {
   guide_id?: string;
   guide_title?: string;
   source_url?: string;
-  citation_url?: string;
   page?: number;
   updated?: string;
   collection?: string;

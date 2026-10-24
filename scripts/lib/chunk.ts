@@ -75,9 +75,42 @@ export function chunkPageText(
 
   flush();
 
-  return chunks.filter(
-    (chunk) => chunk.content.length >= CHUNK_MIN_CHARS || chunks.length === 1,
-  );
+  return mergeShortChunks(chunks);
+}
+
+/**
+ * A page often opens with a short paragraph that ends up alone once the next
+ * paragraph is long enough to be split. Dropping it would remove the only text
+ * that introduces the page, so a short chunk is carried into its neighbour
+ * instead: forward when one follows, backward on the last chunk of a page.
+ */
+function mergeShortChunks(chunks: TextChunk[]): TextChunk[] {
+  const merged: TextChunk[] = [];
+  let carry = "";
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const content = carry
+      ? `${carry}\n\n${chunks[index].content}`
+      : chunks[index].content;
+    carry = "";
+    const isLast = index === chunks.length - 1;
+
+    if (content.length < CHUNK_MIN_CHARS) {
+      if (!isLast) {
+        carry = content;
+        continue;
+      }
+      const previous = merged[merged.length - 1];
+      if (previous) {
+        previous.content = `${previous.content}\n\n${content}`;
+        continue;
+      }
+    }
+
+    merged.push({ page: chunks[index].page, content });
+  }
+
+  return merged;
 }
 
 /** Splits on sentence boundaries where possible, then on whitespace. */

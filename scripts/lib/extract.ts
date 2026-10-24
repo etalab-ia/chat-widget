@@ -7,13 +7,23 @@ import type { PageText } from "./chunk";
 
 const execFileAsync = promisify(execFile);
 
-/** Below this average, the text layer is considered unusable (scanned PDF). */
+/** Below this many characters, a page's text layer is unusable (scanned page). */
 const MIN_CHARS_PER_PAGE = 80;
 
-export type ExtractionMethod = "pdf" | "ocr";
+/** How one page was turned into text. */
+export type PageExtraction = "pdf" | "ocr";
+
+/** How the text of a whole document was obtained. */
+export type ExtractionMethod = PageExtraction | "mixed";
+
+/**
+ * Extracted page. A document can mix both sources: a PDF with a usable text
+ * layer on most pages and scanned inserts only loses the scanned ones.
+ */
+export type ExtractedPage = PageText & { extraction: PageExtraction };
 
 export type ExtractionResult = {
-  pages: PageText[];
+  pages: ExtractedPage[];
   method: ExtractionMethod;
 };
 
@@ -26,8 +36,9 @@ export async function downloadPdf(url: string): Promise<Buffer> {
 }
 
 /**
- * Extracts text page by page. Uses the PDF text layer when it carries enough
- * content, otherwise falls back to Albert OCR, which returns markdown per page.
+ * Extracts text page by page. The text layer is used page by page, and only the
+ * pages that carry too little of it are re-read through Albert OCR. Deciding on
+ * the document average would silently drop the scanned pages of a mixed PDF.
  */
 export async function extractPages(params: {
   pdf: Buffer;
@@ -36,25 +47,56 @@ export async function extractPages(params: {
   ocr: (url: string) => Promise<Array<{ index: number; markdown?: string | null }>>;
 }): Promise<ExtractionResult> {
   const textPages = await extractWithPdftotext(params.pdf, params.pageCount);
-  const totalChars = textPages.reduce((sum, page) => sum + page.text.length, 0);
-  const average = textPages.length > 0 ? totalChars / textPages.length : 0;
+  const needsOcr = textPages.some((page) => !hasUsableText(page.text));
 
-  if (textPages.length > 0 && average >= MIN_CHARS_PER_PAGE) {
-    return { pages: textPages, method: "pdf" };
+  if (!needsOcr) {
+    return {
+      pages: textPages.map((page) => ({ ...page, extraction: "pdf" as const })),
+      method: "pdf",
+    };
   }
 
+  // One OCR call per document: the endpoint takes the PDF URL, not a page.
+  // A failure here is fatal on purpose. Falling back to the text layer would
+  // index the document without the pages OCR was meant to recover.
   const ocrPages = await params.ocr(params.pdfUrl);
+
+  const ocrByPage = new Map<number, string>();
+  for (const page of ocrPages) {
+    const markdown = typeof page.markdown === "string" ? page.markdown : "";
+    if (markdown.trim().length > 0) ocrByPage.set(page.index + 1, markdown);
+  }
+
+  const pages: ExtractedPage[] = textPages.map((page) => {
+    if (hasUsableText(page.text)) return { ...page, extraction: "pdf" as const };
+
+    // The OCR text wins when it carries something. Otherwise the thin text
+    // layer is kept rather than discarded: a page with only a heading still
+    // holds real content, and an empty page yields no chunk anyway.
+    const markdown = ocrByPage.get(page.page);
+    return markdown === undefined
+      ? { ...page, extraction: "pdf" as const }
+      : { page: page.page, text: markdown, extraction: "ocr" as const };
+  });
+
+  const usedOcr = pages.some((page) => page.extraction === "ocr");
+  const usedTextLayer = pages.some((page) => page.extraction === "pdf");
   return {
-    pages: ocrPages
-      .filter((page) => typeof page.markdown === "string")
-      .map((page) => ({ page: page.index + 1, text: page.markdown ?? "" }))
-      .filter((page) => page.text.trim().length > 0)
-      .sort((left, right) => left.page - right.page),
-    method: "ocr",
+    pages,
+    method: usedOcr && usedTextLayer ? "mixed" : usedOcr ? "ocr" : "pdf",
   };
 }
 
-/** Extracts every page by running pdftotext once per page. */
+function hasUsableText(text: string): boolean {
+  return text.trim().length >= MIN_CHARS_PER_PAGE;
+}
+
+/**
+ * Extracts every page with a single pdftotext call. Poppler separates pages
+ * with a form feed and terminates the output with one, so the stream is split
+ * on `\f`; running the binary once per page meant one process per page and
+ * turned each individual failure into an empty page.
+ */
 export async function extractWithPdftotext(
   pdf: Buffer,
   pageCount: number,
@@ -67,20 +109,18 @@ export async function extractWithPdftotext(
   try {
     await writeFile(pdfPath, pdf);
 
-    const pages: PageText[] = [];
-    for (let page = 1; page <= pageCount; page += 1) {
-      try {
-        const { stdout } = await execFileAsync(
-          "pdftotext",
-          ["-layout", "-f", String(page), "-l", String(page), pdfPath, "-"],
-          { maxBuffer: 8 * 1024 * 1024 },
-        );
-        pages.push({ page, text: stdout });
-      } catch {
-        pages.push({ page, text: "" });
-      }
-    }
+    const { stdout } = await execFileAsync("pdftotext", ["-layout", pdfPath, "-"], {
+      maxBuffer: 64 * 1024 * 1024,
+    });
 
+    const parts = stdout.split("\f");
+    // Drop the empty tail left by the final form feed.
+    if (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+
+    const pages: PageText[] = [];
+    for (let index = 0; index < pageCount; index += 1) {
+      pages.push({ page: index + 1, text: parts[index] ?? "" });
+    }
     return pages;
   } finally {
     await rm(dir, { recursive: true, force: true });
