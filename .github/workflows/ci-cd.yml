@@ -1,0 +1,147 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  verify:
+    name: Lint, typecheck, test and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          run_install: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  deploy:
+    name: Deploy to Scaleway
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: scaleway-production
+      cancel-in-progress: false
+    env:
+      SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+      SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+      SCW_ORGANIZATION_ID: ${{ secrets.SCW_ORGANIZATION_ID }}
+      SCW_PROJECT_ID: ${{ secrets.SCW_PROJECT_ID }}
+      SCW_REGION: fr-par
+      SCW_CONTAINER_ID: b9982545-2521-4a9b-ad40-653a9b6928ea
+      SCW_NAMESPACE_ID: f4e894a6-4667-4eb5-b430-de66adb9db06
+      REGISTRY_HOST: rg.fr-par.scw.cloud
+      IMAGE_REFERENCE: rg.fr-par.scw.cloud/chat-widget/chat-widget:sha-${{ github.sha }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check Scaleway configuration
+        run: |
+          test -n "$SCW_ACCESS_KEY"
+          test -n "$SCW_SECRET_KEY"
+          test -n "$SCW_ORGANIZATION_ID"
+          test -n "$SCW_PROJECT_ID"
+
+      - name: Set up Scaleway CLI
+        uses: scaleway/action-scw@2e34a1eb35cf3cac627f24643a101fea269cbd83 # v0.0.3
+        with:
+          # Pin the CLI too; review its upgrades with the workflow changes.
+          version: v2.65.2
+          access-key: ${{ secrets.SCW_ACCESS_KEY }}
+          secret-key: ${{ secrets.SCW_SECRET_KEY }}
+          default-organization-id: ${{ secrets.SCW_ORGANIZATION_ID }}
+          default-project-id: ${{ secrets.SCW_PROJECT_ID }}
+          export-config: true
+
+      - name: Log in to Scaleway registry
+        run: |
+          set -euo pipefail
+          printf '%s' "$SCW_SECRET_KEY" | docker login "$REGISTRY_HOST" --username "$SCW_ACCESS_KEY" --password-stdin
+
+      - name: Verify the Scaleway project and container
+        run: |
+          set -euo pipefail
+          # The application-scoped key can read its container namespace but not
+          # the account-level organization/project APIs. Verify the scope where
+          # the permission actually exists.
+          namespace=$(scw container namespace get "$SCW_NAMESPACE_ID" region="$SCW_REGION" -o json)
+          test "$(jq -r '.organization_id // empty' <<<"$namespace")" = "$SCW_ORGANIZATION_ID"
+          test "$(jq -r '.project_id // empty' <<<"$namespace")" = "$SCW_PROJECT_ID"
+          container=$(scw container container get "$SCW_CONTAINER_ID" region="$SCW_REGION" -o json)
+          test "$(jq -r '.namespace_id // empty' <<<"$container")" = "$SCW_NAMESPACE_ID"
+          echo "Scaleway organization, project and container are consistent."
+
+      - name: Build and push the immutable image
+        run: |
+          set -euo pipefail
+          docker build --pull --tag "$IMAGE_REFERENCE" .
+          docker push "$IMAGE_REFERENCE"
+
+      - name: Update the container image and wait for rollout
+        run: |
+          set -euo pipefail
+          # --wait is required: the CLI does not wait for a rollout by default.
+          scw container container update "$SCW_CONTAINER_ID" \
+            image="$IMAGE_REFERENCE" \
+            region="$SCW_REGION" \
+            --wait \
+            -o json
+
+      - name: Verify the deployed image and check HTTP health
+        run: |
+          set -euo pipefail
+          container=$(scw container container get "$SCW_CONTAINER_ID" region="$SCW_REGION" -o json)
+          test "$(jq -r '.image // empty' <<<"$container")" = "$IMAGE_REFERENCE"
+          test "$(jq -r '.status // empty' <<<"$container")" = "ready"
+          endpoint=$(jq -r '.public_endpoint // empty' <<<"$container")
+          test -n "$endpoint"
+          for _ in $(seq 1 12); do
+            if curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/" \
+              && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/embed"; then
+              echo "Deployment is healthy at ${endpoint}"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Container is ready but the HTTP health checks failed."
+          exit 1

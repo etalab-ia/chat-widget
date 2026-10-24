@@ -136,11 +136,12 @@ La liste des parents est volontairement limitée à des origines nues : une entr
 - Deux plafonds protègent la route : 10 questions par minute et par client, et 500 questions par jour pour l'ensemble du service. Les deux refusent avec un code 429 avant tout appel amont, donc une salve coûte une réponse JSON et non une recherche plus une complétion. Les plafonds se règlent par `ABUSE_MAX_PER_CLIENT` et `ABUSE_MAX_PER_DAY`.
 - Le plafond par client s'appuie sur `X-Real-IP` puis sur la première adresse `X-Forwarded-For`. Ces en-têtes sont contrôlés par le client lorsque le service est joignable directement : c'est une mesure d'équité, pas une authentification. Le plafond quotidien, lui, borne réellement le coût total.
 - Les documents ouverts par les citations le sont avec `rel="noopener noreferrer"`.
-- pnpm impose un délai minimum d'une semaine avant d'accepter une nouvelle version de paquet (`minimumReleaseAge: 10080`).
-- `gitleaks` est configuré en pre-commit (`.pre-commit-config.yaml`), à activer par `pre-commit install`.
+- pnpm impose un délai minimum d'une semaine avant d'accepter une nouvelle version de paquet (`minimumReleaseAge: 10080`). Les deux exceptions exactes pour des correctifs de sécurité sont documentées dans `pnpm-workspace.yaml` ; les autres paquets restent soumis à ce délai.
+- `gitleaks` et `cve-lite` sont configurés en pre-commit (`.pre-commit-config.yaml`), à activer par `pre-commit install`. Le second analyse le lockfile Node et bloque les vulnérabilités de sévérité élevée ou critique avec `cve-lite . --fail-on high`.
+- OSV-Scanner compare les dépendances de chaque pull request à sa branche cible et échoue si elle introduit une nouvelle vulnérabilité. Un scan hebdomadaire et un scan à chaque push sur `main` alimentent aussi Code Scanning, sans bloquer sur les vulnérabilités déjà présentes.
 - Dependabot est actif (`.github/dependabot.yml`), avec un délai de 7 jours avant de proposer une version publiée.
 
-Les workflows de CI (lint, typecheck, tests, build, `gitleaks`, `OSV-Scanner`) sont écrits mais **pas encore versionnés** : les jetons disponibles n'ont pas la portée `workflow` requise par GitHub pour créer un fichier sous `.github/workflows/`, et le dépôt n'est pas encore dans l'installation de l'application GitHub. Tant qu'ils ne sont pas ajoutés, aucune analyse ne s'exécute automatiquement sur les pushs et les pull requests, et le hook `gitleaks` ne protège que les postes où `pre-commit install` a été lancé.
+Les workflows sont versionnés dans `.github/workflows/`. Le hook `gitleaks` reste local : il ne protège que les postes où `pre-commit install` a été lancé.
 
 ## Limites du POC
 
@@ -161,9 +162,24 @@ Deux points ont coûté du temps et méritent d'être connus avant de redéploye
 
 Le champ d'image de l'API s'appelle `image` (et non `registry_image`), et les limites s'expriment en `memory_limit_bytes` et `mvcpu_limit`. Le `timeout` est une durée au format protobuf, donc une chaîne comme `"300s"`.
 
-La nomenclature du registre est `rg.<region>.scw.cloud/<espace>/<image>:<tag>` pour pousser, mais l'API attend la même référence sans le préfixe `rg.` : `fr-par.scw.cloud/<espace>/<image>:<tag>`.
+La nomenclature du registre est `rg.<region>.scw.cloud/<espace>/<image>:<tag>`. Le pipeline utilise cette référence complète pour pousser l'image et pour renseigner le champ `image` du conteneur.
 
 Le secret `ALBERT_API_KEY` est stocké comme variable d'environnement secrète : l'API le renvoie haché en argon2id, ce qui est le comportement attendu et non une corruption de la valeur.
+
+## CI/CD
+
+Le workflow `ci-cd.yml` exécute ESLint, TypeScript, les tests Vitest et le build Next.js sur chaque pull request et chaque push sur `main`. Sur `main`, le job `deploy` démarre seulement après la réussite de ces vérifications. Il construit et publie une image taguée `sha-<SHA complet du commit>`, met à jour le conteneur avec `scw container container update --wait`, vérifie l'image et l'état `ready` avec `scw container container get`, puis contrôle les réponses HTTP de `/` et `/embed`. Un dépassement de délai ou un échec de ces vérifications fait échouer le workflow.
+
+L'action officielle `scaleway/action-scw` installe et configure le CLI Scaleway avec une version explicitement épinglée. Le pipeline n'appelle donc pas directement l'API Scaleway : seules les vérifications HTTP publiques utilisent `curl`.
+
+Le déploiement requiert quatre secrets GitHub Actions, avec les noms idiomatiques Scaleway :
+
+- `SCW_ACCESS_KEY` ;
+- `SCW_SECRET_KEY` ;
+- `SCW_ORGANIZATION_ID` ;
+- `SCW_PROJECT_ID`.
+
+Le job vérifie avant le déploiement que l'organisation, le projet et le conteneur configurés correspondent bien entre eux, en lisant l'espace de noms du conteneur. La région, l'identifiant du conteneur et la référence du registre sont des paramètres non secrets du workflow. `ALBERT_API_KEY` reste configuré uniquement dans Scaleway : la CI n'a pas besoin de cette clé pour vérifier ou construire l'application.
 
 ---
 
