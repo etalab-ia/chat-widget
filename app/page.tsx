@@ -4,7 +4,7 @@ import { Header } from "@codegouvfr/react-dsfr/Header";
 import { fr } from "@codegouvfr/react-dsfr";
 import { EmbedFrame } from "@/components/widget/embed-frame";
 
-const EMBED_SNIPPET = `<script src="https://<votre-hote>/embed.js" defer><\/script>`;
+const EMBED_SNIPPET = `<script src="https://<votre-hote>/embed.js" referrerpolicy="strict-origin-when-cross-origin" defer><\/script>`;
 
 export default function Home() {
   return (

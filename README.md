@@ -90,7 +90,7 @@ Le seul état est celui du fil de conversation, conservé en mémoire du navigat
 ## Intégration dans une page hôte
 
 ```html
-<script src="https://<hote>/embed.js" defer></script>
+<script src="https://<hote>/embed.js" referrerpolicy="strict-origin-when-cross-origin" defer></script>
 ```
 
 Remplacez `<hote>` par l'adresse du service. Le script crée l'iframe avec les attributs de sécurité décrits ci-dessous, puis écoute ses messages pour l'agrandir ou la réduire. Il fonctionne aussi bien dans `<head>` que dans `<body>` et ne crée qu'une seule iframe si la balise est chargée deux fois.
@@ -100,14 +100,15 @@ Deux réglages côté serveurs complètent l'intégration :
 - le service n'accepte d'être affiché que par `'self'` et par les origines listées dans `EMBED_ALLOWED_PARENTS` (en-tête `Content-Security-Policy: frame-ancestors` sur `/embed`) ; une page non listée reçoit un cadre vide. La liste est lue au chargement de la configuration, donc un redéploiement est nécessaire pour la modifier.
 - la page hôte doit autoriser l'adresse du widget dans ses propres règles `script-src`, pour charger `/embed.js`, et `frame-src`, pour afficher `/embed`. L'intégration ne demande aucun script en ligne.
 
-Le redimensionnement évite `postMessage(..., "*")` : le widget adresse son message à l'origine du parent, qu'il lit dans `document.referrer`. C'est la raison du `referrerpolicy="strict-origin-when-cross-origin"` : pour une page hôte sur un autre domaine, le navigateur ne transmet que l'origine, jamais le chemin ni les paramètres ; pour une page de même origine, le widget n'a rien de plus à savoir. Si la page hôte impose `referrerpolicy="no-referrer"`, le référent est vide et le message retombe sur `"*"` — il ne contient alors que l'état ouvert/fermé.
+Le redimensionnement évite `postMessage(..., "*")` : le widget adresse son message à l'origine du parent, qu'il lit dans `document.referrer`. C'est la raison du `referrerpolicy="strict-origin-when-cross-origin"` sur l'iframe : pour une page hôte sur un autre domaine, le navigateur ne transmet que l'origine, jamais le chemin ni les paramètres ; pour une page de même origine, le widget n'a rien de plus à savoir. L'attribut est aussi présent sur la balise `script`, afin d'appliquer la même règle à la requête `/embed.js`. Si la page hôte impose `referrerpolicy="no-referrer"`, le référent est vide et le message retombe sur `"*"` — il ne contient alors que l'état ouvert/fermé.
 
 La liste des parents est volontairement limitée à des origines nues : une entrée avec un chemin ou une requête ne restreindrait pas `frame-ancestors` comme elle en a l'air, et un joker (`https://*.exemple.gouv.fr`) serait accepté par l'en-tête mais jamais reconnu par le widget, qui compare des origines entières. Ces entrées sont écartées au chargement ; il faut lister chaque page hôte.
 
 ## Sécurité
 
 - La clé Albert reste côté serveur ; elle n'est jamais incluse dans un bundle client.
-- L'iframe est confinée par `sandbox` : scripts et origine (nécessaires pour appeler `/api/chat`), ouverture des PDF cités dans un nouvel onglet. Ni navigation de la fenêtre hôte, ni formulaires, ni fenêtres modales, ni téléchargements. Sur une page hôte d'un autre domaine, un widget compromis ne peut donc pas rediriger l'utilisateur ni recouvrir l'interface. Sur la page de démonstration, l'iframe est de même origine : un bac à sable ne sépare pas deux documents de même origine, c'est le domaine distinct qui apporte cette séparation.
+- L'iframe est confinée par `sandbox` : scripts et origine (nécessaires pour appeler `/api/chat`), ouverture des PDF cités dans un nouvel onglet. Ni navigation de la fenêtre hôte, ni formulaires, ni fenêtres modales, ni téléchargements. Sur une page hôte d'un autre domaine, du code exécuté dans `/embed` ne peut donc pas rediriger l'utilisateur ni recouvrir l'interface. Sur la page de démonstration, l'iframe est de même origine : un bac à sable ne sépare pas deux documents de même origine, c'est le domaine distinct qui apporte cette séparation.
+- `/embed.js` s'exécute dans l'origine de la page hôte, en dehors de la sandbox de l'iframe. La page doit donc faire confiance au service qui fournit ce script : la sandbox ne protège pas contre une compromission du chargeur lui-même.
 - Les API de l'appareil sont refusées deux fois : par l'attribut `allow` de l'iframe et par l'en-tête `Permissions-Policy` du service (caméra, micro, position, capture d'écran, lecture du presse-papiers, paiement, USB…). Une iframe de même origine hériterait sinon des droits de la page hôte.
 - `/embed` porte `frame-ancestors` (qui peut l'afficher) et `/` porte `frame-ancestors 'none'` plus `frame-src 'self'` (la page de démonstration ne se laisse pas encadrer et n'encadre que son propre widget). Les autres en-têtes : `X-Content-Type-Options: nosniff` et `Referrer-Policy: strict-origin-when-cross-origin`.
 - Les messages de redimensionnement sont filtrés des deux côtés : la page hôte vérifie `event.source` **et** `event.origin` ainsi que la forme du message, et le widget adresse son message à une origine précise plutôt qu'à `"*"`.

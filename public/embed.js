@@ -12,28 +12,68 @@
   }
 
   const widgetOrigin = widgetUrl.origin;
-  const frameSelector = "iframe[data-anssi-widget]";
+  const shouldAutoMount = script.dataset?.anssiAutoMount !== "false";
+  const existingController = window.__anssiWidget;
+  if (existingController) {
+    if (shouldAutoMount) existingController.mount();
+    return;
+  }
+
+  let frame = null;
+  let onMessage = null;
+  let mountPending = false;
+
+  function onDocumentReady() {
+    mountPending = false;
+    mount();
+  }
+
+  function destroy() {
+    if (mountPending) {
+      document.removeEventListener("DOMContentLoaded", onDocumentReady);
+      mountPending = false;
+    }
+    if (onMessage) {
+      window.removeEventListener("message", onMessage);
+      onMessage = null;
+    }
+    if (frame) {
+      frame.remove();
+      frame = null;
+    }
+  }
 
   function mount() {
-    // A host can include the tag twice, or Next.js can remount the demo page.
-    // Keep one frame and, importantly, one message listener.
-    if (document.querySelector(frameSelector)) return;
+    if (document.readyState === "loading") {
+      if (!mountPending) {
+        mountPending = true;
+        document.addEventListener("DOMContentLoaded", onDocumentReady, {
+          once: true,
+        });
+      }
+      return;
+    }
 
-    const frame = document.createElement("iframe");
-    frame.src = widgetUrl.href;
-    frame.title = "Assistant ANSSI";
-    frame.setAttribute("data-anssi-widget", "");
-    frame.setAttribute(
+    // Keep one frame and one listener across duplicate loads and React remounts.
+    if (frame?.isConnected) return;
+    destroy();
+
+    const nextFrame = document.createElement("iframe");
+    frame = nextFrame;
+    nextFrame.src = widgetUrl.href;
+    nextFrame.title = "Assistant ANSSI";
+    nextFrame.setAttribute("data-anssi-widget", "");
+    nextFrame.setAttribute(
       "sandbox",
       "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox",
     );
-    frame.setAttribute(
+    nextFrame.setAttribute(
       "allow",
       "camera 'none'; microphone 'none'; geolocation 'none'",
     );
-    frame.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+    nextFrame.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
 
-    Object.assign(frame.style, {
+    Object.assign(nextFrame.style, {
       position: "fixed",
       right: "16px",
       bottom: "16px",
@@ -45,9 +85,9 @@
       transition: "width 160ms ease, height 160ms ease",
     });
 
-    function onMessage(event) {
+    onMessage = (event) => {
       if (event.origin !== widgetOrigin) return;
-      if (event.source !== frame.contentWindow) return;
+      if (event.source !== nextFrame.contentWindow) return;
 
       const data = event.data;
       if (!data || data.source !== "anssi-widget" || data.type !== "resize") {
@@ -55,19 +95,18 @@
       }
       if (typeof data.open !== "boolean") return;
 
-      frame.style.width = data.open ? "420px" : "88px";
-      frame.style.height = data.open ? "620px" : "88px";
-    }
+      nextFrame.style.width = data.open ? "420px" : "88px";
+      nextFrame.style.height = data.open ? "620px" : "88px";
+    };
 
     // Listen before attaching the frame so even an immediate resize announcement
     // from the widget cannot be missed.
     window.addEventListener("message", onMessage);
-    document.body.appendChild(frame);
+    document.body.appendChild(nextFrame);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", mount, { once: true });
-  } else {
-    mount();
-  }
+  // next/script caches the asset, so a remount needs a controller rather than a
+  // second script evaluation. Kept after destroy to support that remount.
+  window.__anssiWidget = { mount, destroy };
+  if (shouldAutoMount) mount();
 })();

@@ -16,6 +16,8 @@ type FakeFrame = {
   title: string;
   style: Record<string, string>;
   contentWindow: Record<string, never>;
+  isConnected: boolean;
+  remove: () => void;
   setAttribute: (name: string, value: string) => void;
   getAttribute: (name: string) => string | null;
 };
@@ -27,6 +29,10 @@ function createFrame(): FakeFrame {
     title: "",
     style: {},
     contentWindow: {},
+    isConnected: false,
+    remove() {
+      this.isConnected = false;
+    },
     setAttribute(name, value) {
       attributes.set(name, value);
     },
@@ -39,13 +45,17 @@ function createFrame(): FakeFrame {
 function createHarness({
   readyState = "complete",
   scriptSrc = `${WIDGET_ORIGIN}/embed.js`,
-}: { readyState?: string; scriptSrc?: string } = {}) {
+  autoMount = true,
+}: { readyState?: string; scriptSrc?: string; autoMount?: boolean } = {}) {
   const frames: FakeFrame[] = [];
   const messageListeners = new Set<(event: FakeMessage) => void>();
   const domContentLoadedListeners = new Set<() => void>();
 
   const document = {
-    currentScript: { src: scriptSrc },
+    currentScript: {
+      src: scriptSrc,
+      dataset: { anssiAutoMount: String(autoMount) },
+    },
     readyState,
     createElement(tagName: string) {
       if (tagName !== "iframe") throw new Error(`Unexpected element: ${tagName}`);
@@ -56,12 +66,15 @@ function createHarness({
         throw new Error(`Unexpected selector: ${selector}`);
       }
       return (
-        frames.find((frame) => frame.getAttribute("data-anssi-widget") !== null) ??
-        null
+        frames.find(
+          (frame) =>
+            frame.isConnected && frame.getAttribute("data-anssi-widget") !== null,
+        ) ?? null
       );
     },
     body: {
       appendChild(frame: FakeFrame) {
+        frame.isConnected = true;
         frames.push(frame);
         return frame;
       },
@@ -70,24 +83,47 @@ function createHarness({
       if (type !== "DOMContentLoaded") throw new Error(`Unexpected event: ${type}`);
       domContentLoadedListeners.add(listener);
     },
+    removeEventListener(type: string, listener: () => void) {
+      if (type !== "DOMContentLoaded") throw new Error(`Unexpected event: ${type}`);
+      domContentLoadedListeners.delete(listener);
+    },
   };
 
   const window = {
+    __anssiWidget: undefined as
+      | { mount: () => void; destroy: () => void }
+      | undefined,
     addEventListener(type: string, listener: (event: FakeMessage) => void) {
       if (type !== "message") throw new Error(`Unexpected event: ${type}`);
       messageListeners.add(listener);
+    },
+    removeEventListener(type: string, listener: (event: FakeMessage) => void) {
+      if (type !== "message") throw new Error(`Unexpected event: ${type}`);
+      messageListeners.delete(listener);
     },
   };
 
   return {
     frames,
+    activeFrames() {
+      return frames.filter((frame) => frame.isConnected);
+    },
+    controller() {
+      const controller = window.__anssiWidget;
+      if (!controller) throw new Error("Loader controller not initialized");
+      return controller;
+    },
     load() {
       vm.runInNewContext(loader, { window, document, URL });
     },
     emitDOMContentLoaded() {
+      document.readyState = "complete";
       const listeners = [...domContentLoadedListeners];
       domContentLoadedListeners.clear();
       for (const listener of listeners) listener();
+    },
+    domContentLoadedListenerCount() {
+      return domContentLoadedListeners.size;
     },
     emitMessage(event: FakeMessage) {
       for (const listener of messageListeners) listener(event);
@@ -193,5 +229,75 @@ describe("embed loader", () => {
       data: resizeMessage(true),
     });
     expect(frame.style).toMatchObject({ width: "420px", height: "620px" });
+  });
+
+  it("lets a managed consumer control mounting, including after cleanup", () => {
+    const harness = createHarness({ autoMount: false });
+    harness.load();
+    expect(harness.frames).toHaveLength(0);
+    expect(harness.messageListenerCount()).toBe(0);
+
+    harness.controller().mount();
+    expect(harness.activeFrames()).toHaveLength(1);
+    expect(harness.messageListenerCount()).toBe(1);
+
+    harness.controller().destroy();
+    harness.load();
+    expect(harness.activeFrames()).toHaveLength(0);
+    expect(harness.messageListenerCount()).toBe(0);
+  });
+
+  it("destroys the frame and listener, then remounts without reloading the script", () => {
+    const harness = createHarness();
+    harness.load();
+    const firstFrame = harness.frames[0];
+
+    harness.controller().destroy();
+    expect(harness.activeFrames()).toHaveLength(0);
+    expect(harness.messageListenerCount()).toBe(0);
+
+    harness.controller().destroy();
+    expect(harness.activeFrames()).toHaveLength(0);
+
+    harness.controller().mount();
+    expect(harness.activeFrames()).toHaveLength(1);
+    expect(harness.activeFrames()[0]).not.toBe(firstFrame);
+    expect(harness.messageListenerCount()).toBe(1);
+
+    const nextFrame = harness.activeFrames()[0];
+    harness.emitMessage({
+      origin: WIDGET_ORIGIN,
+      source: nextFrame.contentWindow,
+      data: resizeMessage(true),
+    });
+    expect(nextFrame.style).toMatchObject({ width: "420px", height: "620px" });
+  });
+
+  it("cancels a pending mount on destroy and can schedule it again", () => {
+    const harness = createHarness({ readyState: "loading" });
+    harness.load();
+
+    harness.controller().destroy();
+    expect(harness.domContentLoadedListenerCount()).toBe(0);
+    expect(harness.frames).toHaveLength(0);
+    expect(harness.messageListenerCount()).toBe(0);
+
+    harness.controller().mount();
+    expect(harness.domContentLoadedListenerCount()).toBe(1);
+    harness.emitDOMContentLoaded();
+    expect(harness.activeFrames()).toHaveLength(1);
+    expect(harness.messageListenerCount()).toBe(1);
+  });
+
+  it("replaces an externally removed frame without duplicating its listener", () => {
+    const harness = createHarness();
+    harness.load();
+    harness.frames[0].remove();
+
+    harness.controller().mount();
+
+    expect(harness.activeFrames()).toHaveLength(1);
+    expect(harness.frames).toHaveLength(2);
+    expect(harness.messageListenerCount()).toBe(1);
   });
 });
