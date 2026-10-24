@@ -81,6 +81,17 @@ jobs:
           test -n "$SCW_ORGANIZATION_ID"
           test -n "$SCW_PROJECT_ID"
 
+      - name: Set up Scaleway CLI
+        uses: scaleway/action-scw@2e34a1eb35cf3cac627f24643a101fea269cbd83 # v0.0.3
+        with:
+          # Pin the CLI too; review its upgrades with the workflow changes.
+          version: v2.65.2
+          access-key: ${{ secrets.SCW_ACCESS_KEY }}
+          secret-key: ${{ secrets.SCW_SECRET_KEY }}
+          default-organization-id: ${{ secrets.SCW_ORGANIZATION_ID }}
+          default-project-id: ${{ secrets.SCW_PROJECT_ID }}
+          export-config: true
+
       - name: Log in to Scaleway registry
         run: |
           set -euo pipefail
@@ -92,14 +103,10 @@ jobs:
           # The application-scoped key can read its container namespace but not
           # the account-level organization/project APIs. Verify the scope where
           # the permission actually exists.
-          namespace=$(curl --fail --silent --show-error \
-            --header "X-Auth-Token: $SCW_SECRET_KEY" \
-            "https://api.scaleway.com/containers/v1/regions/${SCW_REGION}/namespaces/${SCW_NAMESPACE_ID}")
+          namespace=$(scw container namespace get "$SCW_NAMESPACE_ID" region="$SCW_REGION" -o json)
           test "$(jq -r '.organization_id // empty' <<<"$namespace")" = "$SCW_ORGANIZATION_ID"
           test "$(jq -r '.project_id // empty' <<<"$namespace")" = "$SCW_PROJECT_ID"
-          container=$(curl --fail --silent --show-error \
-            --header "X-Auth-Token: $SCW_SECRET_KEY" \
-            "https://api.scaleway.com/containers/v1/regions/${SCW_REGION}/containers/${SCW_CONTAINER_ID}")
+          container=$(scw container container get "$SCW_CONTAINER_ID" region="$SCW_REGION" -o json)
           test "$(jq -r '.namespace_id // empty' <<<"$container")" = "$SCW_NAMESPACE_ID"
           echo "Scaleway organization, project and container are consistent."
 
@@ -109,55 +116,28 @@ jobs:
           docker build --pull --tag "$IMAGE_REFERENCE" .
           docker push "$IMAGE_REFERENCE"
 
-      - name: Update the container image
+      - name: Update the container image and wait for rollout
         run: |
           set -euo pipefail
-          payload=$(jq -n --arg image "$IMAGE_REFERENCE" '{image: $image}')
-          curl --fail --silent --show-error \
-            --request PATCH \
-            --header "X-Auth-Token: $SCW_SECRET_KEY" \
-            --header "Content-Type: application/json" \
-            --data "$payload" \
-            "https://api.scaleway.com/containers/v1/regions/${SCW_REGION}/containers/${SCW_CONTAINER_ID}" \
-            | jq '{image, status}'
+          # --wait is required: the CLI does not wait for a rollout by default.
+          scw container container update "$SCW_CONTAINER_ID" \
+            image="$IMAGE_REFERENCE" \
+            region="$SCW_REGION" \
+            --wait \
+            -o json
 
-      - name: Wait for readiness and check HTTP health
+      - name: Verify the deployed image and check HTTP health
         run: |
           set -euo pipefail
-          status="unknown"
-          deployed=0
-          while true; do
-            if container=$(curl --fail --silent --show-error \
-              --header "X-Auth-Token: $SCW_SECRET_KEY" \
-              "https://api.scaleway.com/containers/v1/regions/${SCW_REGION}/containers/${SCW_CONTAINER_ID}"); then
-              status=$(jq -r '.status // "unknown"' <<<"$container")
-              current_image=$(jq -r '.image // empty' <<<"$container")
-              if [ "$status" = "ready" ] && [ "$current_image" = "$IMAGE_REFERENCE" ]; then
-                deployed=1
-                break
-              fi
-              if [ "$status" = "error" ]; then
-                jq '{image, status, error_message}' <<<"$container"
-                exit 1
-              fi
-            fi
-            sleep 10
-            if [ "$SECONDS" -ge 400 ]; then
-              break
-            fi
-          done
-
-          if [ "$deployed" -ne 1 ]; then
-            echo "The new image did not become ready within 400 seconds (last status: $status)."
-            exit 1
-          fi
-
+          container=$(scw container container get "$SCW_CONTAINER_ID" region="$SCW_REGION" -o json)
+          test "$(jq -r '.image // empty' <<<"$container")" = "$IMAGE_REFERENCE"
+          test "$(jq -r '.status // empty' <<<"$container")" = "ready"
           endpoint=$(jq -r '.public_endpoint // empty' <<<"$container")
           test -n "$endpoint"
           for _ in $(seq 1 12); do
-            if curl --fail --silent --show-error --max-time 45 --output /dev/null "https://${endpoint}/" \
-              && curl --fail --silent --show-error --max-time 45 --output /dev/null "https://${endpoint}/embed"; then
-              echo "Deployment is healthy at https://${endpoint}"
+            if curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/" \
+              && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/embed"; then
+              echo "Deployment is healthy at ${endpoint}"
               exit 0
             fi
             sleep 10
