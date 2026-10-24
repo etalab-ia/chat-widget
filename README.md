@@ -138,9 +138,10 @@ La liste des parents est volontairement limitée à des origines nues : une entr
 - Les documents ouverts par les citations le sont avec `rel="noopener noreferrer"`.
 - pnpm impose un délai minimum d'une semaine avant d'accepter une nouvelle version de paquet (`minimumReleaseAge: 10080`).
 - `gitleaks` est configuré en pre-commit (`.pre-commit-config.yaml`), à activer par `pre-commit install`.
+- OSV-Scanner compare les dépendances de chaque pull request à sa branche cible et échoue si elle introduit une nouvelle vulnérabilité. Un scan hebdomadaire et un scan à chaque push sur `main` alimentent aussi Code Scanning, sans bloquer sur les vulnérabilités déjà présentes.
 - Dependabot est actif (`.github/dependabot.yml`), avec un délai de 7 jours avant de proposer une version publiée.
 
-Les workflows de CI (lint, typecheck, tests, build, `gitleaks`, `OSV-Scanner`) sont écrits mais **pas encore versionnés** : les jetons disponibles n'ont pas la portée `workflow` requise par GitHub pour créer un fichier sous `.github/workflows/`, et le dépôt n'est pas encore dans l'installation de l'application GitHub. Tant qu'ils ne sont pas ajoutés, aucune analyse ne s'exécute automatiquement sur les pushs et les pull requests, et le hook `gitleaks` ne protège que les postes où `pre-commit install` a été lancé.
+Les workflows sont versionnés dans `.github/workflows/`. Le hook `gitleaks` reste local : il ne protège que les postes où `pre-commit install` a été lancé.
 
 ## Limites du POC
 
@@ -161,9 +162,20 @@ Deux points ont coûté du temps et méritent d'être connus avant de redéploye
 
 Le champ d'image de l'API s'appelle `image` (et non `registry_image`), et les limites s'expriment en `memory_limit_bytes` et `mvcpu_limit`. Le `timeout` est une durée au format protobuf, donc une chaîne comme `"300s"`.
 
-La nomenclature du registre est `rg.<region>.scw.cloud/<espace>/<image>:<tag>` pour pousser, mais l'API attend la même référence sans le préfixe `rg.` : `fr-par.scw.cloud/<espace>/<image>:<tag>`.
+La nomenclature du registre est `rg.<region>.scw.cloud/<espace>/<image>:<tag>`. Le pipeline utilise cette référence complète pour pousser l'image et pour renseigner le champ `image` du conteneur.
 
 Le secret `ALBERT_API_KEY` est stocké comme variable d'environnement secrète : l'API le renvoie haché en argon2id, ce qui est le comportement attendu et non une corruption de la valeur.
+
+## CI/CD
+
+Le workflow `ci-cd.yml` exécute ESLint, TypeScript, les tests Vitest et le build Next.js sur chaque pull request et chaque push sur `main`. Sur `main`, le job `deploy` démarre seulement après la réussite de ces vérifications. Il construit et publie une image taguée `sha-<SHA complet du commit>`, met à jour le conteneur, attend que cette image précise soit à l'état `ready`, puis vérifie les réponses HTTP de `/` et `/embed`. Un dépassement de délai ou un échec de ces vérifications fait échouer le workflow.
+
+Le déploiement requiert deux secrets GitHub Actions, avec les noms idiomatiques Scaleway :
+
+- `SCW_ACCESS_KEY` ;
+- `SCW_SECRET_KEY`.
+
+La région, l'identifiant du conteneur et la référence du registre sont des paramètres non secrets du workflow. `ALBERT_API_KEY` reste configuré uniquement dans Scaleway : la CI n'a pas besoin de cette clé pour vérifier ou construire l'application.
 
 ---
 

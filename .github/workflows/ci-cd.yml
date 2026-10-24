@@ -1,0 +1,143 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  verify:
+    name: Lint, typecheck, test and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@d9184bf108216479bc5a137cc391f4d7b14c870b # v6.1.0
+        with:
+          run_install: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  deploy:
+    name: Deploy to Scaleway
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: scaleway-production
+      cancel-in-progress: false
+    env:
+      SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+      SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+      SCW_REGION: fr-par
+      SCW_CONTAINER_ID: b9982545-2521-4a9b-ad40-653a9b6928ea
+      REGISTRY_HOST: rg.fr-par.scw.cloud
+      IMAGE_REFERENCE: rg.fr-par.scw.cloud/chat-widget/chat-widget:sha-${{ github.sha }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check Scaleway credentials
+        run: |
+          test -n "$SCW_ACCESS_KEY"
+          test -n "$SCW_SECRET_KEY"
+
+      - name: Log in to Scaleway registry
+        run: printf '%s' "$SCW_SECRET_KEY" | docker login "$REGISTRY_HOST" --username "$SCW_ACCESS_KEY" --password-stdin
+
+      - name: Build and push the immutable image
+        run: |
+          set -euo pipefail
+          docker build --pull --tag "$IMAGE_REFERENCE" .
+          docker push "$IMAGE_REFERENCE"
+
+      - name: Update the container image
+        run: |
+          set -euo pipefail
+          payload=$(jq -n --arg image "$IMAGE_REFERENCE" '{image: $image}')
+          curl --fail --silent --show-error \
+            --request PATCH \
+            --header "X-Auth-Token: $SCW_SECRET_KEY" \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            "https://api.scaleway.com/containers/v1/regions/${SCW_REGION}/containers/${SCW_CONTAINER_ID}" \
+            | jq '{image, status}'
+
+      - name: Wait for readiness and check HTTP health
+        run: |
+          set -euo pipefail
+          status="unknown"
+          deployed=0
+          while true; do
+            if container=$(curl --fail --silent --show-error \
+              --header "X-Auth-Token: $SCW_SECRET_KEY" \
+              "https://api.scaleway.com/containers/v1/regions/${SCW_REGION}/containers/${SCW_CONTAINER_ID}"); then
+              status=$(jq -r '.status // "unknown"' <<<"$container")
+              current_image=$(jq -r '.image // empty' <<<"$container")
+              if [ "$status" = "ready" ] && [ "$current_image" = "$IMAGE_REFERENCE" ]; then
+                deployed=1
+                break
+              fi
+              if [ "$status" = "error" ]; then
+                jq '{image, status, error_message}' <<<"$container"
+                exit 1
+              fi
+            fi
+            sleep 10
+            if [ "$SECONDS" -ge 400 ]; then
+              break
+            fi
+          done
+
+          if [ "$deployed" -ne 1 ]; then
+            echo "The new image did not become ready within 400 seconds (last status: $status)."
+            exit 1
+          fi
+
+          endpoint=$(jq -r '.public_endpoint // empty' <<<"$container")
+          test -n "$endpoint"
+          for _ in $(seq 1 12); do
+            if curl --fail --silent --show-error --max-time 45 --output /dev/null "https://${endpoint}/" \
+              && curl --fail --silent --show-error --max-time 45 --output /dev/null "https://${endpoint}/embed"; then
+              echo "Deployment is healthy at https://${endpoint}"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Container is ready but the HTTP health checks failed."
+          exit 1
