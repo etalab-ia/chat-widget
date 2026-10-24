@@ -58,7 +58,7 @@ export function chunkPageText(
   for (const paragraph of paragraphs) {
     if (paragraph.length > targetChars) {
       flush();
-      for (const piece of splitLongText(paragraph, targetChars)) {
+      for (const piece of splitText(paragraph, targetChars)) {
         chunks.push({ page, content: piece });
       }
       continue;
@@ -75,7 +75,9 @@ export function chunkPageText(
 
   flush();
 
-  return mergeShortChunks(chunks);
+  return mergeShortChunks(chunks).flatMap((chunk) =>
+    capChunkSize(chunk, targetChars),
+  );
 }
 
 /**
@@ -113,13 +115,37 @@ function mergeShortChunks(chunks: TextChunk[]): TextChunk[] {
   return merged;
 }
 
-/** Splits on sentence boundaries where possible, then on whitespace. */
-function splitLongText(text: string, targetChars: number): string[] {
+/**
+ * A merged chunk can exceed the target by up to the minimum size. Retrieval
+ * truncates every chunk to `LIMITS.maxChunkCharacters`, which equals the
+ * chunking target, so an oversized chunk would lose its tail in the model's
+ * context. Split it into balanced pieces instead: no text is dropped and every
+ * piece stays within the limit.
+ */
+function capChunkSize(chunk: TextChunk, targetChars: number): TextChunk[] {
+  const length = chunk.content.length;
+  if (length <= targetChars) return [chunk];
+
+  // Balanced, not full-then-fragment: a greedy cut would leave the same short
+  // tail the merge was meant to eliminate.
+  return splitText(chunk.content, targetChars).map((content) => ({
+    page: chunk.page,
+    content,
+  }));
+}
+
+/**
+ * Splits text into chunks of at most `targetChars`, on sentence boundaries
+ * where possible, then on whitespace. Each cut aims at an even share of what
+ * remains, so the last chunk is a real chunk rather than a fragment.
+ */
+function splitText(text: string, targetChars: number): string[] {
   const pieces: string[] = [];
   let remaining = text.trim();
 
   while (remaining.length > targetChars) {
-    const window = remaining.slice(0, targetChars);
+    const wanted = Math.ceil(remaining.length / Math.ceil(remaining.length / targetChars));
+    const window = remaining.slice(0, wanted);
     const sentenceEnd = Math.max(
       window.lastIndexOf(". "),
       window.lastIndexOf(".\n"),
@@ -128,11 +154,11 @@ function splitLongText(text: string, targetChars: number): string[] {
     );
     const spaceEnd = window.lastIndexOf(" ");
     const cut =
-      sentenceEnd > targetChars * 0.5
+      sentenceEnd > wanted * 0.5
         ? sentenceEnd + 1
         : spaceEnd > 0
           ? spaceEnd
-          : targetChars;
+          : wanted;
 
     pieces.push(remaining.slice(0, cut).trim());
     remaining = remaining.slice(cut).trim();

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHUNK_MIN_CHARS,
   CHUNK_TARGET_CHARS,
   chunkPageText,
   normalizePageText,
@@ -69,9 +70,14 @@ describe("chunkPageText", () => {
   it("merges a trailing fragment into the previous chunk instead of dropping it", () => {
     const body = "m".repeat(CHUNK_TARGET_CHARS);
     const chunks = chunkPageText(1, `${body}\n\ncourt`);
-    expect(chunks).toHaveLength(1);
-    expect(chunks[0].content).toContain("court");
-    expect(chunks[0].content.endsWith("court")).toBe(true);
+
+    // The merged text is rebalanced: retrieval truncates every chunk to the
+    // target, so keeping one oversized chunk would cut "court" off in context.
+    expect(chunks.at(-1)?.content.endsWith("court")).toBe(true);
+    expect(chunks.map((chunk) => chunk.content).join("")).toContain(body);
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_TARGET_CHARS);
+    }
   });
 
   it("merges a short page opening into the paragraph that follows", () => {
@@ -85,6 +91,26 @@ describe("chunkPageText", () => {
     expect(chunks[0].content.startsWith(intro)).toBe(true);
     const rejoined = chunks.map((chunk) => chunk.content).join(" ");
     expect(rejoined.replace(/\s+/g, " ")).toContain(intro);
+  });
+
+  it("keeps every chunk within the target after a merge, so nothing is truncated in context", () => {
+    // The case from the review: a short introduction followed by a long
+    // paragraph. Merging must not push the chunk past the limit that
+    // `buildContextBlocks` enforces when it builds the model context.
+    const intro = "Introduction courte. ".repeat(5).trim();
+    const long = "mot ".repeat(500).trim();
+    const chunks = chunkPageText(1, `${intro}\n\n${long}`);
+
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_TARGET_CHARS);
+      expect(chunk.content.length).toBeGreaterThanOrEqual(CHUNK_MIN_CHARS);
+    }
+    const rejoined = chunks
+      .map((chunk) => chunk.content)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(rejoined).toBe(`${intro} ${long}`);
   });
 
   it("keeps a page whose only text is short as a single chunk", () => {
