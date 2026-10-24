@@ -170,12 +170,14 @@ Le secret `ALBERT_API_KEY` est stocké comme variable d'environnement secrète :
 
 Le workflow `ci-cd.yml` exécute ESLint, TypeScript, les tests Vitest et le build Next.js sur chaque pull request et chaque push sur `main`. Sur `main`, le job `deploy` démarre seulement après la réussite de ces vérifications. Il construit et publie une image taguée `sha-<SHA complet du commit>`, met à jour le conteneur, attend que cette image précise soit à l'état `ready`, puis vérifie les réponses HTTP de `/` et `/embed`. Un dépassement de délai ou un échec de ces vérifications fait échouer le workflow.
 
-Le déploiement requiert deux secrets GitHub Actions, avec les noms idiomatiques Scaleway :
+Le déploiement requiert quatre secrets GitHub Actions, avec les noms idiomatiques Scaleway :
 
 - `SCW_ACCESS_KEY` ;
-- `SCW_SECRET_KEY`.
+- `SCW_SECRET_KEY` ;
+- `SCW_ORGANIZATION_ID` ;
+- `SCW_PROJECT_ID`.
 
-La région, l'identifiant du conteneur et la référence du registre sont des paramètres non secrets du workflow. `ALBERT_API_KEY` reste configuré uniquement dans Scaleway : la CI n'a pas besoin de cette clé pour vérifier ou construire l'application.
+Le job vérifie avant le déploiement que l'organisation, le projet et le conteneur configurés correspondent bien entre eux, en lisant l'espace de noms du conteneur. La région, l'identifiant du conteneur et la référence du registre sont des paramètres non secrets du workflow. `ALBERT_API_KEY` reste configuré uniquement dans Scaleway : la CI n'a pas besoin de cette clé pour vérifier ou construire l'application.
 
 ---
 
