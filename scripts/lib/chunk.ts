@@ -153,12 +153,17 @@ function splitText(text: string, targetChars: number): string[] {
       window.lastIndexOf("? "),
     );
     const spaceEnd = window.lastIndexOf(" ");
-    const cut =
+    const cut = avoidSurrogateSplit(
+      remaining,
       sentenceEnd > wanted * 0.5
         ? sentenceEnd + 1
-        : spaceEnd > 0
+        : // A space near the start of the window would leave a stub of a chunk;
+          // cut at the window size instead and keep the word whole on the other
+          // side of the boundary.
+          spaceEnd > wanted * 0.5
           ? spaceEnd
-          : wanted;
+          : wanted,
+    );
 
     pieces.push(remaining.slice(0, cut).trim());
     remaining = remaining.slice(cut).trim();
@@ -166,4 +171,23 @@ function splitText(text: string, targetChars: number): string[] {
 
   if (remaining.length > 0) pieces.push(remaining);
   return pieces;
+}
+
+/**
+ * Moves a cut off a surrogate pair. Slicing on UTF-16 code units can otherwise
+ * split an emoji or a non-BMP character in two, leaving each chunk with half a
+ * character, which is not valid text on its own.
+ */
+function avoidSurrogateSplit(text: string, cut: number): number {
+  if (cut <= 0 || cut >= text.length) return cut;
+
+  const before = text.charCodeAt(cut - 1);
+  const after = text.charCodeAt(cut);
+  const splitsPair =
+    before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff;
+  if (!splitsPair) return cut;
+
+  // Step back when that still makes progress; otherwise the pair is the first
+  // character and the cut moves past it.
+  return cut > 1 ? cut - 1 : cut + 1;
 }

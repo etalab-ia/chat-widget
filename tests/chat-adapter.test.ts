@@ -191,4 +191,27 @@ describe("runChat stream decoding", () => {
 
     expect(lastText(await collectUpdates())).toBe("réponse");
   });
+
+  it("emits no duplicate update when the stream ends on a done event", async () => {
+    stubChatResponse([
+      encoder.encode(
+        deltaLine("un") + deltaLine("deux") + `${JSON.stringify({ type: "done" })}\n`,
+      ),
+    ]);
+
+    const updates = await collectUpdates();
+
+    // One update per delta: the final answer must not be sent a third time.
+    expect(updates).toHaveLength(2);
+    expect(updates.map((update) => lastText([update]))).toEqual(["un", "undeux"]);
+  });
+
+  it("emits no duplicate update when the last delta has no trailing newline", async () => {
+    stubChatResponse([encoder.encode(deltaLine("un") + JSON.stringify({ type: "delta", text: "deux" }))]);
+
+    const updates = await collectUpdates();
+
+    expect(updates).toHaveLength(2);
+    expect(lastText(updates)).toBe("undeux");
+  });
 });

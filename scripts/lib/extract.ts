@@ -25,6 +25,12 @@ export type ExtractedPage = PageText & { extraction: PageExtraction };
 export type ExtractionResult = {
   pages: ExtractedPage[];
   method: ExtractionMethod;
+  /**
+   * Pages whose text layer was too thin and whose OCR result carried no text
+   * either. They produce no chunk, so the ingestion reports them: a page the
+   * OCR did not cover would otherwise disappear from the index in silence.
+   */
+  emptyPages: number[];
 };
 
 export async function downloadPdf(url: string): Promise<Buffer> {
@@ -53,6 +59,7 @@ export async function extractPages(params: {
     return {
       pages: textPages.map((page) => ({ ...page, extraction: "pdf" as const })),
       method: "pdf",
+      emptyPages: [],
     };
   }
 
@@ -84,6 +91,9 @@ export async function extractPages(params: {
   return {
     pages,
     method: usedOcr && usedTextLayer ? "mixed" : usedOcr ? "ocr" : "pdf",
+    emptyPages: pages
+      .filter((page) => page.text.trim().length === 0)
+      .map((page) => page.page),
   };
 }
 

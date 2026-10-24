@@ -118,4 +118,27 @@ describe("chunkPageText", () => {
     expect(chunks).toHaveLength(1);
     expect(chunks[0].content).toBe("Page de garde.");
   });
+
+  it("never splits a multi-byte character across two chunks", () => {
+    // 2002 UTF-16 units: a naive hard cut at 1200 falls inside a surrogate pair.
+    const chunks = chunkPageText(1, "😀".repeat(1001));
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+    for (const chunk of chunks) {
+      expect(lone.test(chunk.content)).toBe(false);
+      expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_TARGET_CHARS);
+    }
+    // The character count is preserved: each piece still holds whole emoji.
+    expect(chunks.map((chunk) => chunk.content).join("")).toBe("😀".repeat(1001));
+  });
+
+  it("does not leave a stub chunk when the only space sits at the start", () => {
+    // A space at offset 1 used to become the split point, leaving one character.
+    const chunks = chunkPageText(1, `a ${"m".repeat(1198)}\n\ncourt`);
+
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeGreaterThanOrEqual(CHUNK_MIN_CHARS);
+      expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_TARGET_CHARS);
+    }
+  });
 });

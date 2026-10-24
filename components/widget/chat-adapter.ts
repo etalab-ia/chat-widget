@@ -103,6 +103,8 @@ export async function* runChat(params: {
   let buffer = "";
   let sources: ContentPart[] = [];
   let answer = "";
+  /** Last answer text already yielded, if any. */
+  let emitted: string | null = null;
   let finished = false;
 
   /**
@@ -131,6 +133,7 @@ export async function* runChat(params: {
         yield { content: [...sources] };
       } else if (event.type === "delta") {
         answer += event.text;
+        emitted = answer;
         yield { content: [...sources, { type: "text", text: answer }] };
       } else if (event.type === "error") {
         throw new Error(event.message);
@@ -163,7 +166,11 @@ export async function* runChat(params: {
     reader.releaseLock();
   }
 
-  yield { content: [...sources, { type: "text", text: answer }] };
+  // A `done` event already carries the final answer. Otherwise the stream ended
+  // on its own: emit the last state only when it has not been sent yet.
+  if (!finished && answer !== emitted) {
+    yield { content: [...sources, { type: "text", text: answer }] };
+  }
 }
 
 /** assistant-ui adapter wrapping the streaming fetcher above. */

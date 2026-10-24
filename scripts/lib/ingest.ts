@@ -19,6 +19,8 @@ export type IngestOutcome =
       chunks: number;
       pages: number;
       extraction: ExtractionMethod;
+      /** Pages with no text even after OCR; they carry no chunk. */
+      pagesWithoutText: number[];
     }
   | { status: "skipped"; guideId: string; reason: string }
   | { status: "failed"; guideId: string; reason: string };
@@ -74,6 +76,7 @@ export async function ingestSource(params: {
         chunks: chunks.length,
         pages: extracted.pages.length,
         extraction: extracted.method,
+        pagesWithoutText: extracted.emptyPages,
       };
     }
 
@@ -106,6 +109,7 @@ export async function ingestSource(params: {
       chunks: chunks.length,
       pages: extracted.pages.length,
       extraction: extracted.method,
+      pagesWithoutText: extracted.emptyPages,
     };
   } catch (error) {
     return {

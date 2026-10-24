@@ -70,6 +70,7 @@ beforeEach(() => {
       { page: 2, text: "b".repeat(400), extraction: "ocr" },
     ],
     method: "mixed",
+    emptyPages: [],
   });
 });
 
@@ -86,6 +87,7 @@ describe("ingestSource", () => {
       chunks: 2,
       pages: 2,
       extraction: "mixed",
+      pagesWithoutText: [],
     });
     expect(calls.created).toEqual([{ name: "guide.pdf", collectionId: 7 }]);
     expect(calls.added).toHaveLength(1);
@@ -145,7 +147,11 @@ describe("ingestSource", () => {
   });
 
   it("does not create a document when no text was extracted", async () => {
-    extractMock.extractPages.mockResolvedValue({ pages: [], method: "pdf" });
+    extractMock.extractPages.mockResolvedValue({
+      pages: [],
+      method: "pdf",
+      emptyPages: [],
+    });
     const { client, calls } = fakeClient();
 
     const outcome = await ingestSource({ source: SOURCE, collectionId: 7, client });
@@ -171,6 +177,23 @@ describe("ingestSource", () => {
     expect(outcome).toMatchObject({ status: "indexed", documentId: -1, chunks: 2 });
     expect(calls.created).toEqual([]);
     expect(calls.added).toEqual([]);
+  });
+
+  it("passes on the pages that produced no text, so the report can name them", async () => {
+    extractMock.extractPages.mockResolvedValue({
+      pages: [
+        { page: 1, text: "a".repeat(400), extraction: "pdf" },
+        { page: 2, text: "", extraction: "pdf" },
+      ],
+      method: "mixed",
+      emptyPages: [2],
+    });
+    const { client } = fakeClient();
+
+    const outcome = await ingestSource({ source: SOURCE, collectionId: 7, client });
+
+    expect(outcome.status).toBe("indexed");
+    expect(outcome.status === "indexed" && outcome.pagesWithoutText).toEqual([2]);
   });
 });
 

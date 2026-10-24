@@ -205,6 +205,11 @@ async function main() {
             `  [${position}] ok ${outcome.guideId} — ${outcome.chunks} chunks, ` +
               `${outcome.pages} pages (${outcome.extraction})`,
           );
+          if (outcome.pagesWithoutText.length > 0) {
+            console.log(
+              `      pages sans texte: ${outcome.pagesWithoutText.join(", ")}`,
+            );
+          }
         } else if (outcome.status === "skipped") {
           console.log(`  [${position}] ignoré ${outcome.guideId}: ${outcome.reason}`);
         } else {

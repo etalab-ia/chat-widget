@@ -192,4 +192,32 @@ describe("extractPages", () => {
       extractPages({ pdf: PDF, pdfUrl: "u", pageCount: 2, ocr }),
     ).rejects.toThrow("Albert OCR indisponible");
   });
+
+  it("reports the pages that stayed empty because OCR did not cover them", async () => {
+    // Page 2 has no text layer and the OCR response carries nothing for it.
+    // The page produces no chunk, so it must be reported instead of vanishing.
+    pdftotextOutputs(pagesOutput(dense, "", dense));
+    const ocr = vi.fn(async () => [{ index: 0, markdown: "page 1 par OCR" }]);
+
+    const result = await extractPages({ pdf: PDF, pdfUrl: "u", pageCount: 3, ocr });
+
+    // No page ended up using OCR, so the document is still a text-layer one;
+    // the dropped page is reported separately instead of being counted.
+    expect(result.method).toBe("pdf");
+    expect(result.pages[1]).toEqual({ page: 2, text: "", extraction: "pdf" });
+    expect(result.emptyPages).toEqual([2]);
+  });
+
+  it("reports nothing when every page produced text", async () => {
+    pdftotextOutputs(pagesOutput(dense, dense));
+
+    const result = await extractPages({
+      pdf: PDF,
+      pdfUrl: "u",
+      pageCount: 2,
+      ocr: vi.fn(),
+    });
+
+    expect(result.emptyPages).toEqual([]);
+  });
 });
