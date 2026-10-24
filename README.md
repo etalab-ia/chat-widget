@@ -8,13 +8,14 @@ Le widget est chargé dans une iframe. L'architecture reste compatible avec un e
 
 ```
 Page intranet hôte
-  -> iframe /embed
-     -> assistant-ui (modale flottante, fil de conversation uniquement)
-     -> POST /api/chat                    (clé Albert côté serveur)
-        -> Albert POST /v1/search         (méthode hybride)
-        -> construction du contexte et des citations
-        -> Albert POST /v1/chat/completions (flux SSE, gpt-oss-120b)
-     <- flux NDJSON : sources, puis deltas de la réponse
+  -> script /embed.js
+     -> iframe /embed
+        -> assistant-ui (modale flottante, fil de conversation uniquement)
+        -> POST /api/chat                    (clé Albert côté serveur)
+           -> Albert POST /v1/search         (méthode hybride)
+           -> construction du contexte et des citations
+           -> Albert POST /v1/chat/completions (flux SSE, gpt-oss-120b)
+        <- flux NDJSON : sources, puis deltas de la réponse
 ```
 
 Le navigateur ne reçoit jamais la clé Albert : seule la route serveur `/api/chat` la lit.
@@ -89,36 +90,15 @@ Le seul état est celui du fil de conversation, conservé en mémoire du navigat
 ## Intégration dans une page hôte
 
 ```html
-<iframe
-  src="https://<hote>/embed"
-  title="Assistant ANSSI"
-  style="position:fixed;right:16px;bottom:16px;width:88px;height:88px;border:0;z-index:50"
-  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-  allow="camera 'none'; microphone 'none'; geolocation 'none'"
-  referrerpolicy="strict-origin-when-cross-origin"
-></iframe>
-
-<script>
-  const WIDGET_ORIGIN = "https://<hote>";
-
-  // L'iframe ne peut pas se dimensionner sur son contenu : le widget annonce
-  // son état et la page hôte ajuste le cadre.
-  window.addEventListener("message", (event) => {
-    if (event.origin !== WIDGET_ORIGIN) return;
-    const frame = document.querySelector("iframe[title='Assistant ANSSI']");
-    if (!frame || event.source !== frame.contentWindow) return;
-    const data = event.data;
-    if (!data || data.source !== "anssi-widget" || data.type !== "resize") return;
-    frame.style.width = data.open ? "420px" : "88px";
-    frame.style.height = data.open ? "620px" : "88px";
-  });
-</script>
+<script src="https://<hote>/embed.js" defer></script>
 ```
 
-Deux réglages côté serveurs complètent le bloc :
+Remplacez `<hote>` par l'adresse du service. Le script crée l'iframe avec les attributs de sécurité décrits ci-dessous, puis écoute ses messages pour l'agrandir ou la réduire. Il fonctionne aussi bien dans `<head>` que dans `<body>` et ne crée qu'une seule iframe si la balise est chargée deux fois.
 
-- le service n'accepte d'être affiché que par `'self'` et par les origines listées dans `EMBED_ALLOWED_PARENTS` (en-tête `Content-Security-Policy: frame-ancestors` sur `/embed`) ; une page non listée reçoit un cadre vide. La liste est lue au chargement de la configuration, donc un redéploiement est nécessaire pour la modifier ;
-- la page hôte doit autoriser l'adresse du widget dans sa propre règle `frame-src`.
+Deux réglages côté serveurs complètent l'intégration :
+
+- le service n'accepte d'être affiché que par `'self'` et par les origines listées dans `EMBED_ALLOWED_PARENTS` (en-tête `Content-Security-Policy: frame-ancestors` sur `/embed`) ; une page non listée reçoit un cadre vide. La liste est lue au chargement de la configuration, donc un redéploiement est nécessaire pour la modifier.
+- la page hôte doit autoriser l'adresse du widget dans ses propres règles `script-src`, pour charger `/embed.js`, et `frame-src`, pour afficher `/embed`. L'intégration ne demande aucun script en ligne.
 
 Le redimensionnement évite `postMessage(..., "*")` : le widget adresse son message à l'origine du parent, qu'il lit dans `document.referrer`. C'est la raison du `referrerpolicy="strict-origin-when-cross-origin"` : pour une page hôte sur un autre domaine, le navigateur ne transmet que l'origine, jamais le chemin ni les paramètres ; pour une page de même origine, le widget n'a rien de plus à savoir. Si la page hôte impose `referrerpolicy="no-referrer"`, le référent est vide et le message retombe sur `"*"` — il ne contient alors que l'état ouvert/fermé.
 

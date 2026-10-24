@@ -15,19 +15,6 @@ export type EmbedResizeMessage = {
   open: boolean;
 };
 
-export const COLLAPSED_SIZE = { width: 88, height: 88 } as const;
-export const EXPANDED_SIZE = { width: 420, height: 620 } as const;
-
-export function isEmbedResizeMessage(value: unknown): value is EmbedResizeMessage {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Partial<EmbedResizeMessage>;
-  return (
-    candidate.source === EMBED_MESSAGE_SOURCE &&
-    candidate.type === "resize" &&
-    typeof candidate.open === "boolean"
-  );
-}
-
 /**
  * A scheme, a host and an optional port. Nothing else: `frame-ancestors` is a
  * space- and semicolon-delimited grammar, so an entry carrying either character

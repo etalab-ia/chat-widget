@@ -3,32 +3,8 @@ import { Footer } from "@codegouvfr/react-dsfr/Footer";
 import { Header } from "@codegouvfr/react-dsfr/Header";
 import { fr } from "@codegouvfr/react-dsfr";
 import { EmbedFrame } from "@/components/widget/embed-frame";
-import { COLLAPSED_SIZE, EXPANDED_SIZE } from "@/lib/embed-bridge";
 
-const EMBED_SNIPPET = `<iframe
-  src="https://<votre-hote>/embed"
-  title="Assistant ANSSI"
-  style="position:fixed;right:16px;bottom:16px;width:${COLLAPSED_SIZE.width}px;height:${COLLAPSED_SIZE.height}px;border:0;z-index:50"
-  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-  allow="camera 'none'; microphone 'none'; geolocation 'none'"
-  referrerpolicy="strict-origin-when-cross-origin"
-></iframe>
-
-<script>
-  const WIDGET_ORIGIN = "https://<votre-hote>";
-
-  // Une iframe ne peut pas se redimensionner elle-même : le widget annonce
-  // s'il est ouvert ou fermé, et cette page ajuste le cadre.
-  window.addEventListener("message", (event) => {
-    if (event.origin !== WIDGET_ORIGIN) return;
-    const frame = document.querySelector("iframe[title='Assistant ANSSI']");
-    if (!frame || event.source !== frame.contentWindow) return;
-    const data = event.data;
-    if (!data || data.source !== "anssi-widget" || data.type !== "resize") return;
-    frame.style.width = data.open ? "${EXPANDED_SIZE.width}px" : "${COLLAPSED_SIZE.width}px";
-    frame.style.height = data.open ? "${EXPANDED_SIZE.height}px" : "${COLLAPSED_SIZE.height}px";
-  });
-<\/script>`;
+const EMBED_SNIPPET = `<script src="https://<votre-hote>/embed.js" defer><\/script>`;
 
 export default function Home() {
   return (
@@ -71,10 +47,9 @@ export default function Home() {
 
             <h2 className={fr.cx("fr-mt-6w")}>Ajouter l&apos;assistant à une page</h2>
             <p>
-              Copiez ce bloc dans la page où l&apos;assistant doit apparaître.
-              Le cadre affiche le bouton ; le script qui suit l&apos;agrandit
-              quand la fenêtre s&apos;ouvre, car une iframe ne peut pas changer
-              sa taille toute seule.
+              Copiez cette balise dans la page où l&apos;assistant doit
+              apparaître. Le script crée le cadre, affiche le bouton et
+              l&apos;agrandit quand la fenêtre s&apos;ouvre.
             </p>
 
             {/* The box is the <pre> and the <code> stays a plain block inside
@@ -94,12 +69,11 @@ export default function Home() {
             </p>
 
             <h3 className={fr.cx("fr-mt-4w", "fr-h6")}>
-              Ce que le bloc empêche
+              Ce que le script met en place
             </h3>
             <p>
-              Une page qui accueille une iframe lui donne des droits. Ceux qui
-              sont inutiles ici sont refusés dès le cadre, et non laissés au
-              choix du navigateur.
+              Le script crée une iframe avec des droits limités à ce dont
+              l&apos;assistant a besoin.
             </p>
             <ul>
               <li>
@@ -119,20 +93,19 @@ export default function Home() {
                 les paramètres d&apos;adresse.
               </li>
               <li>
-                Le script vérifie l&apos;origine et la forme du message avant
-                d&apos;agir, et n&apos;accepte un message que du cadre
-                lui-même. Remplacez <code>&lt;votre-hote&gt;</code> aux deux
-                endroits.
+                Le script vérifie l&apos;origine et la forme de chaque message
+                de redimensionnement, et n&apos;accepte que ceux envoyés par le
+                cadre qu&apos;il a créé.
               </li>
             </ul>
             <p>
               Deux réglages s&apos;ajoutent sur les serveurs, car ce sont eux
               qui décident qui peut afficher quoi. Le service n&apos;accepte
               d&apos;être affiché que par les sites listés dans{" "}
-              <code>frame-ancestors</code>, et votre page doit autoriser
-              l&apos;adresse du widget dans sa propre règle{" "}
-              <code>frame-src</code>. Sans le second, le navigateur bloque le
-              cadre même si le premier l&apos;autorise.
+              <code>frame-ancestors</code>. Votre page doit autoriser
+              l&apos;adresse du widget dans ses propres règles{" "}
+              <code>script-src</code>, pour charger le script, et{" "}
+              <code>frame-src</code>, pour afficher le cadre.
             </p>
             <p>
               Ces réglages séparent d&apos;autant mieux que le widget est servi

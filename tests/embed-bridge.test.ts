@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  isEmbedResizeMessage,
   originOf,
   parseAllowedParents,
   resolveTargetOrigin,
@@ -136,24 +135,5 @@ describe("resolveTargetOrigin", () => {
         referrer: "about:client",
       }),
     ).toBe("*");
-  });
-});
-
-describe("isEmbedResizeMessage", () => {
-  it("accepts the documented shape", () => {
-    expect(
-      isEmbedResizeMessage({ source: "anssi-widget", type: "resize", open: true }),
-    ).toBe(true);
-  });
-
-  it("rejects other shapes", () => {
-    expect(isEmbedResizeMessage(null)).toBe(false);
-    expect(isEmbedResizeMessage("resize")).toBe(false);
-    expect(isEmbedResizeMessage({ source: "anssi-widget", type: "resize" })).toBe(
-      false,
-    );
-    expect(
-      isEmbedResizeMessage({ source: "other", type: "resize", open: true }),
-    ).toBe(false);
   });
 });
