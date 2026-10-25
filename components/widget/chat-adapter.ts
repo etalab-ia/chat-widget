@@ -103,47 +103,74 @@ export async function* runChat(params: {
   let buffer = "";
   let sources: ContentPart[] = [];
   let answer = "";
+  /** Last answer text already yielded, if any. */
+  let emitted: string | null = null;
+  let finished = false;
+
+  /**
+   * Parses every complete line currently in `buffer` and yields the cumulative
+   * content after each event. A call after the stream ends also parses the
+   * trailing line, which the caller terminates itself.
+   */
+  function* emitPending(): Generator<WidgetRunResult, void, unknown> {
+    let newline = buffer.indexOf("\n");
+    while (newline !== -1) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf("\n");
+      if (!line) continue;
+
+      let event: StreamEvent;
+      try {
+        event = JSON.parse(line) as StreamEvent;
+      } catch {
+        // A truncated or injected line must not kill the answer in progress.
+        continue;
+      }
+
+      if (event.type === "sources") {
+        sources = citationsToParts(event.sources);
+        yield { content: [...sources] };
+      } else if (event.type === "delta") {
+        answer += event.text;
+        emitted = answer;
+        yield { content: [...sources, { type: "text", text: answer }] };
+      } else if (event.type === "error") {
+        throw new Error(event.message);
+      } else if (event.type === "done") {
+        finished = true;
+        return;
+      }
+    }
+  }
 
   try {
-    while (true) {
+    while (!finished) {
       const { done, value } = await reader.read();
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
+      yield* emitPending();
+    }
 
-      let newline = buffer.indexOf("\n");
-      while (newline !== -1) {
-        const line = buffer.slice(0, newline).trim();
-        buffer = buffer.slice(newline + 1);
-        newline = buffer.indexOf("\n");
-        if (!line) continue;
-
-        let event: StreamEvent;
-        try {
-          event = JSON.parse(line) as StreamEvent;
-        } catch {
-          // A truncated or injected line must not kill the answer in progress.
-          continue;
-        }
-
-        if (event.type === "sources") {
-          sources = citationsToParts(event.sources);
-          yield { content: [...sources] };
-        } else if (event.type === "delta") {
-          answer += event.text;
-          yield { content: [...sources, { type: "text", text: answer }] };
-        } else if (event.type === "error") {
-          throw new Error(event.message);
-        } else if (event.type === "done") {
-          return;
-        }
-      }
+    if (!finished) {
+      // `decode()` without `stream: true` flushes the bytes the decoder holds
+      // back for a multi-byte character split across reads, and the last event
+      // may arrive without a trailing newline. Without this, the end of the
+      // answer can be lost.
+      buffer += decoder.decode();
+      if (buffer.length > 0) buffer += "\n";
+      yield* emitPending();
     }
   } finally {
     reader.releaseLock();
   }
 
-  yield { content: [...sources, { type: "text", text: answer }] };
+  // A `done` event already carries the final answer. Otherwise the stream ended
+  // on its own: emit the last state only when it has not been sent yet.
+  if (!finished && answer !== emitted) {
+    yield { content: [...sources, { type: "text", text: answer }] };
+  }
 }
 
 /** assistant-ui adapter wrapping the streaming fetcher above. */

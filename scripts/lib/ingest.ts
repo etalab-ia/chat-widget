@@ -1,9 +1,15 @@
 import { AlbertClient, AlbertError } from "../../lib/albert/client";
 import type { ChunkMetadata } from "../../lib/albert/types";
-import { buildCitationUrl } from "../../lib/rag/citations";
 import type { PdfSource } from "./catalogue";
 import { chunkPageText } from "./chunk";
-import { assertPdfBuffer, countPdfPages, downloadPdf, extractPages } from "./extract";
+import {
+  assertPdfBuffer,
+  countPdfPages,
+  downloadPdf,
+  extractPages,
+  type ExtractionMethod,
+  type PageExtraction,
+} from "./extract";
 
 export type IngestOutcome =
   | {
@@ -12,7 +18,9 @@ export type IngestOutcome =
       documentId: number;
       chunks: number;
       pages: number;
-      extraction: "pdf" | "ocr";
+      extraction: ExtractionMethod;
+      /** Pages with no text even after OCR; they carry no chunk. */
+      pagesWithoutText: number[];
     }
   | { status: "skipped"; guideId: string; reason: string }
   | { status: "failed"; guideId: string; reason: string };
@@ -48,7 +56,7 @@ export async function ingestSource(params: {
     const chunks = extracted.pages.flatMap((page) =>
       chunkPageText(page.page, page.text).map((chunk) => ({
         content: chunk.content,
-        metadata: buildChunkMetadata(source, chunk.page, extracted.method),
+        metadata: buildChunkMetadata(source, chunk.page, page.extraction),
       })),
     );
 
@@ -68,6 +76,7 @@ export async function ingestSource(params: {
         chunks: chunks.length,
         pages: extracted.pages.length,
         extraction: extracted.method,
+        pagesWithoutText: extracted.emptyPages,
       };
     }
 
@@ -76,7 +85,22 @@ export async function ingestSource(params: {
       collectionId,
     });
 
-    await client.addChunks(document.id, chunks);
+    try {
+      await client.addChunks(document.id, chunks);
+    } catch (error) {
+      // Chunks are written in batches, so a failure part-way leaves a document
+      // that is already searchable with a fraction of its text while the
+      // report says the guide failed. Remove it and keep the original error.
+      try {
+        await client.deleteDocument(document.id);
+      } catch (cleanupError) {
+        throw new Error(
+          `${describeFailure(error)} (document partiel ${document.id} non supprimé: ` +
+            `${describeFailure(cleanupError)})`,
+        );
+      }
+      throw error;
+    }
 
     return {
       status: "indexed",
@@ -85,6 +109,7 @@ export async function ingestSource(params: {
       chunks: chunks.length,
       pages: extracted.pages.length,
       extraction: extracted.method,
+      pagesWithoutText: extracted.emptyPages,
     };
   } catch (error) {
     return {
@@ -108,13 +133,12 @@ function describeFailure(error: unknown): string {
 export function buildChunkMetadata(
   source: PdfSource,
   page: number,
-  extraction: "pdf" | "ocr",
+  extraction: PageExtraction,
 ): ChunkMetadata {
   return {
     guide_id: source.guideId,
     guide_title: source.guideTitle,
     source_url: source.pdfUrl,
-    citation_url: buildCitationUrl(source.pdfUrl, page),
     page,
     collection: source.language,
     extraction,

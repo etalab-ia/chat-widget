@@ -191,6 +191,11 @@ export class AlbertClient {
     return (await response.json()) as { id: number };
   }
 
+  /** Deletes a document and its chunks; used to discard a partial ingestion. */
+  async deleteDocument(documentId: number): Promise<void> {
+    await this.request(`/v1/documents/${documentId}`, { method: "DELETE" });
+  }
+
   /** Albert accepts at most 64 chunks per call. */
   async addChunks(
     documentId: number,
