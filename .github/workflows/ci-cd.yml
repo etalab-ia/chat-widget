@@ -136,7 +136,8 @@ jobs:
           test -n "$endpoint"
           for _ in $(seq 1 12); do
             if curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/" \
-              && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/embed"; then
+              && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/embed" \
+              && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/embed.js"; then
               echo "Deployment is healthy at ${endpoint}"
               exit 0
             fi
