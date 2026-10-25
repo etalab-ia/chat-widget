@@ -115,6 +115,7 @@ export function parseSpans(
 			spans.push({ kind: "text", text: text.slice(cursor, match.index) });
 		}
 		cursor = match.index + match[0].length;
+		match = pattern.exec(text);
 
 		// An unknown number is attached to a source it does not have: leave it out
 		// rather than printing a bracketed number the reader cannot follow.
@@ -126,7 +127,6 @@ export function parseSpans(
 			page: source.page,
 			url: source.url,
 		});
-		match = pattern.exec(text);
 	}
 
 	if (cursor < text.length) {
