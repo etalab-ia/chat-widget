@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noArrayIndexKey: parsed answer blocks and spans are immutable within a render and may repeat identical text; positional keys stay unique.
 "use client";
 
 import {
@@ -224,11 +225,11 @@ function AnswerText({
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			{blocks.map((block) => {
+			{blocks.map((block, index) => {
 				const key =
 					block.kind === "ordered"
-						? `${block.kind}:${block.number}:${block.text}`
-						: `${block.kind}:${block.text}`;
+						? `${block.kind}:${block.number}:${block.text}:${index}`
+						: `${block.kind}:${block.text}:${index}`;
 				if (block.kind === "bullet") {
 					return (
 						<div key={key} className="flex gap-2 pl-0.5">
@@ -284,16 +285,16 @@ function InlineText({
 
 	return (
 		<>
-			{spans.map((span) => {
+			{spans.map((span, index) => {
 				if (span.kind === "text")
-					return <span key={`text:${span.text}`}>{span.text}</span>;
+					return <span key={`text:${span.text}:${index}`}>{span.text}</span>;
 
 				const where =
 					span.page === null ? "le document cité" : `la page ${span.page}`;
 
 				return (
 					<a
-						key={`citation:${span.marker}:${span.url}`}
+						key={`citation:${span.marker}:${span.url}:${index}`}
 						href={span.url}
 						target="_blank"
 						rel="noopener noreferrer"
