@@ -1,29 +1,29 @@
-import { AlbertClient, AlbertError } from "../../lib/albert/client";
+import { type AlbertClient, AlbertError } from "../../lib/albert/client";
 import type { ChunkMetadata } from "../../lib/albert/types";
 import type { PdfSource } from "./catalogue";
 import { chunkPageText } from "./chunk";
 import {
-  assertPdfBuffer,
-  countPdfPages,
-  downloadPdf,
-  extractPages,
-  type ExtractionMethod,
-  type PageExtraction,
+	assertPdfBuffer,
+	countPdfPages,
+	downloadPdf,
+	type ExtractionMethod,
+	extractPages,
+	type PageExtraction,
 } from "./extract";
 
 export type IngestOutcome =
-  | {
-      status: "indexed";
-      guideId: string;
-      documentId: number;
-      chunks: number;
-      pages: number;
-      extraction: ExtractionMethod;
-      /** Pages with no text even after OCR; they carry no chunk. */
-      pagesWithoutText: number[];
-    }
-  | { status: "skipped"; guideId: string; reason: string }
-  | { status: "failed"; guideId: string; reason: string };
+	| {
+			status: "indexed";
+			guideId: string;
+			documentId: number;
+			chunks: number;
+			pages: number;
+			extraction: ExtractionMethod;
+			/** Pages with no text even after OCR; they carry no chunk. */
+			pagesWithoutText: number[];
+	  }
+	| { status: "skipped"; guideId: string; reason: string }
+	| { status: "failed"; guideId: string; reason: string };
 
 /**
  * Downloads one guide PDF, splits it page by page and indexes the chunks as a
@@ -31,117 +31,115 @@ export type IngestOutcome =
  * a citation URL that opens the PDF at that page.
  */
 export async function ingestSource(params: {
-  source: PdfSource;
-  collectionId: number;
-  client: AlbertClient;
-  dryRun?: boolean;
+	source: PdfSource;
+	collectionId: number;
+	client: AlbertClient;
+	dryRun?: boolean;
 }): Promise<IngestOutcome> {
-  const { source, collectionId, client } = params;
+	const { source, collectionId, client } = params;
 
-  try {
-    const pdf = await downloadPdf(source.pdfUrl);
-    assertPdfBuffer(pdf);
+	try {
+		const pdf = await downloadPdf(source.pdfUrl);
+		assertPdfBuffer(pdf);
 
-    const pageCount = await countPdfPages(pdf);
-    const extracted = await extractPages({
-      pdf,
-      pdfUrl: source.pdfUrl,
-      pageCount,
-      ocr: async (url) => {
-        const response = await client.ocr({ documentUrl: url });
-        return response.pages;
-      },
-    });
+		const pageCount = await countPdfPages(pdf);
+		const extracted = await extractPages({
+			pdf,
+			pdfUrl: source.pdfUrl,
+			pageCount,
+			ocr: async (url) => {
+				const response = await client.ocr({ documentUrl: url });
+				return response.pages;
+			},
+		});
 
-    const chunks = extracted.pages.flatMap((page) =>
-      chunkPageText(page.page, page.text).map((chunk) => ({
-        content: chunk.content,
-        metadata: buildChunkMetadata(source, chunk.page, page.extraction),
-      })),
-    );
+		const chunks = extracted.pages.flatMap((page) =>
+			chunkPageText(page.page, page.text).map((chunk) => ({
+				content: chunk.content,
+				metadata: buildChunkMetadata(source, chunk.page, page.extraction),
+			})),
+		);
 
-    if (chunks.length === 0) {
-      return {
-        status: "skipped",
-        guideId: source.guideId,
-        reason: "aucun texte extrait",
-      };
-    }
+		if (chunks.length === 0) {
+			return {
+				status: "skipped",
+				guideId: source.guideId,
+				reason: "aucun texte extrait",
+			};
+		}
 
-    if (params.dryRun) {
-      return {
-        status: "indexed",
-        guideId: source.guideId,
-        documentId: -1,
-        chunks: chunks.length,
-        pages: extracted.pages.length,
-        extraction: extracted.method,
-        pagesWithoutText: extracted.emptyPages,
-      };
-    }
+		if (params.dryRun) {
+			return {
+				status: "indexed",
+				guideId: source.guideId,
+				documentId: -1,
+				chunks: chunks.length,
+				pages: extracted.pages.length,
+				extraction: extracted.method,
+				pagesWithoutText: extracted.emptyPages,
+			};
+		}
 
-    const document = await client.createDocument({
-      name: source.pdfUrl.split("/").pop() ?? `${source.guideId}.pdf`,
-      collectionId,
-    });
+		const document = await client.createDocument({
+			name: source.pdfUrl.split("/").pop() ?? `${source.guideId}.pdf`,
+			collectionId,
+		});
 
-    try {
-      await client.addChunks(document.id, chunks);
-    } catch (error) {
-      // Chunks are written in batches, so a failure part-way leaves a document
-      // that is already searchable with a fraction of its text while the
-      // report says the guide failed. Remove it and keep the original error.
-      try {
-        await client.deleteDocument(document.id);
-      } catch (cleanupError) {
-        throw new Error(
-          `${describeFailure(error)} (document partiel ${document.id} non supprimé: ` +
-            `${describeFailure(cleanupError)})`,
-        );
-      }
-      throw error;
-    }
+		try {
+			await client.addChunks(document.id, chunks);
+		} catch (error) {
+			// Chunks are written in batches, so a failure part-way leaves a document
+			// that is already searchable with a fraction of its text while the
+			// report says the guide failed. Remove it and keep the original error.
+			try {
+				await client.deleteDocument(document.id);
+			} catch (cleanupError) {
+				throw new Error(
+					`${describeFailure(error)} (document partiel ${document.id} non supprimé: ` +
+						`${describeFailure(cleanupError)})`,
+				);
+			}
+			throw error;
+		}
 
-    return {
-      status: "indexed",
-      guideId: source.guideId,
-      documentId: document.id,
-      chunks: chunks.length,
-      pages: extracted.pages.length,
-      extraction: extracted.method,
-      pagesWithoutText: extracted.emptyPages,
-    };
-  } catch (error) {
-    return {
-      status: "failed",
-      guideId: source.guideId,
-      reason: describeFailure(error),
-    };
-  }
+		return {
+			status: "indexed",
+			guideId: source.guideId,
+			documentId: document.id,
+			chunks: chunks.length,
+			pages: extracted.pages.length,
+			extraction: extracted.method,
+			pagesWithoutText: extracted.emptyPages,
+		};
+	} catch (error) {
+		return {
+			status: "failed",
+			guideId: source.guideId,
+			reason: describeFailure(error),
+		};
+	}
 }
 
 /** Keeps the API's own explanation in the report; a bare status code hides it. */
 function describeFailure(error: unknown): string {
-  if (error instanceof AlbertError) {
-    return error.detail
-      ? `${error.message}: ${error.detail}`
-      : error.message;
-  }
-  return error instanceof Error ? error.message : String(error);
+	if (error instanceof AlbertError) {
+		return error.detail ? `${error.message}: ${error.detail}` : error.message;
+	}
+	return error instanceof Error ? error.message : String(error);
 }
 
 export function buildChunkMetadata(
-  source: PdfSource,
-  page: number,
-  extraction: PageExtraction,
+	source: PdfSource,
+	page: number,
+	extraction: PageExtraction,
 ): ChunkMetadata {
-  return {
-    guide_id: source.guideId,
-    guide_title: source.guideTitle,
-    source_url: source.pdfUrl,
-    page,
-    collection: source.language,
-    extraction,
-    ...(source.updated ? { updated: source.updated.slice(0, 10) } : {}),
-  };
+	return {
+		guide_id: source.guideId,
+		guide_title: source.guideTitle,
+		source_url: source.pdfUrl,
+		page,
+		collection: source.language,
+		extraction,
+		...(source.updated ? { updated: source.updated.slice(0, 10) } : {}),
+	};
 }

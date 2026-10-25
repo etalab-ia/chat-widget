@@ -41,7 +41,7 @@ Prérequis : Node 26, pnpm 11, et `poppler-utils` (`pdftotext`, `pdfinfo`) pour 
 
 ```bash
 pnpm install
-pre-commit install
+pre-commit install --install-hooks
 cp .env.example .env.local   # renseigner ALBERT_API_KEY
 pnpm dev
 ```
@@ -52,7 +52,9 @@ La page `/` simule une page intranet et charge le widget depuis `/embed`. La pag
 | --- | --- |
 | `pnpm dev` | serveur de développement |
 | `pnpm build` | build de production |
-| `pnpm lint` | ESLint |
+| `pnpm lint` | Biome et règles Next.js spécifiques avec ESLint |
+| `pnpm check` | vérification Biome en mode CI |
+| `pnpm format` | formatage et corrections Biome sûres |
 | `pnpm typecheck` | TypeScript |
 | `pnpm test` | tests Vitest |
 | `pnpm ingest` | indexation du corpus ANSSI |
@@ -120,12 +122,15 @@ La liste des parents est volontairement limitée à des origines nues : une entr
 - Deux plafonds protègent la route : 10 questions par minute et par client, et 500 questions par jour pour l'ensemble du service. Les deux refusent avec un code 429 avant tout appel amont, donc une salve coûte une réponse JSON et non une recherche plus une complétion. Les plafonds se règlent par `ABUSE_MAX_PER_CLIENT` et `ABUSE_MAX_PER_DAY`.
 - Le plafond par client s'appuie sur `X-Real-IP` puis sur la première adresse `X-Forwarded-For`. Ces en-têtes sont contrôlés par le client lorsque le service est joignable directement : c'est une mesure d'équité, pas une authentification. Le plafond quotidien, lui, borne réellement le coût total.
 - Les documents ouverts par les citations le sont avec `rel="noopener noreferrer"`.
-- pnpm impose un délai minimum d'une semaine avant d'accepter une nouvelle version de paquet (`minimumReleaseAge: 10080`). Seules des exceptions exactes et documentées dans `pnpm-workspace.yaml` peuvent contourner ce délai.
-- `gitleaks` et `cve-lite` sont configurés en pre-commit (`.pre-commit-config.yaml`), à activer par `pre-commit install`. Le second analyse le lockfile Node et bloque les vulnérabilités de sévérité élevée ou critique avec `cve-lite . --fail-on high`.
+- pnpm impose un délai minimum d'une semaine avant d'accepter une nouvelle version de paquet (`minimumReleaseAge: 10080`), échoue si aucune version mature ne correspond ou si les dates de publication manquent, et revérifie le lockfile à l'installation (`trustLockfile: false`). Les scripts de build sont refusés sauf pour les outils explicitement listés dans `allowBuilds`, et les dépendances transitives exotiques sont refusées. Seules des exceptions exactes et documentées dans `pnpm-workspace.yaml` peuvent contourner ce délai.
+- `gitleaks` s'exécute en pre-commit et `cve-lite` en pre-push (`.pre-commit-config.yaml`), après `pre-commit install --install-hooks`. CVE Lite utilise le pin exact de `devDependencies` et analyse tout le lockfile avec `pnpm exec cve-lite . --fail-on high`. Le workflow `gitleaks.yml` ajoute un scan complet de l'historique sur chaque PR et chaque push sur `main`, avec binaire et empreinte vérifiés.
+- Biome assure le formatage et le lint général. ESLint reste comme couche de compatibilité Next.js : 32 règles React/Next pertinentes n'ont pas d'équivalent dans Biome 2.5.9, dont plusieurs contrôles React Hooks et dix règles Next.js. Les deux sont exécutés par `pnpm lint` et par la CI, plutôt que de supprimer ces protections.
 - OSV-Scanner compare les dépendances de chaque pull request à sa branche cible et échoue si elle introduit une nouvelle vulnérabilité. Un scan hebdomadaire et un scan à chaque push sur `main` alimentent aussi Code Scanning, sans bloquer sur les vulnérabilités déjà présentes.
-- Dependabot est actif (`.github/dependabot.yml`), avec un délai de 7 jours avant de proposer une version publiée.
+- Dependabot est actif (`.github/dependabot.yml`), avec un délai de 7 jours avant de proposer une version publiée. Il couvre npm, pre-commit, GitHub Actions et Docker ; ses mises à jour de sécurité ne sont pas soumises à ce délai.
 
-Les workflows sont versionnés dans `.github/workflows/`. Le hook `gitleaks` reste local : il ne protège que les postes où `pre-commit install` a été lancé.
+Les workflows sont versionnés dans `.github/workflows/`. Le hook `gitleaks` reste local : il ne protège que les postes où `pre-commit install --install-hooks` a été lancé.
+
+`release-please.yml` maintient une PR de release à partir des Conventional Commits. Les versions restent sur `0.1.0`, `0.2.0`, etc. avec `bump-minor-pre-major: true`. Le passage à `1.0.0` exige une décision explicite et un commit `Release-As: 1.0.0`. Cette configuration ne déclenche aucun déploiement automatique supplémentaire.
 
 ## Limites du POC
 

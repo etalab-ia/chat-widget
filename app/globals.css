@@ -1,20 +1,20 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+	--font-sans:
+		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+		"Helvetica Neue", Arial, sans-serif;
 }
 
 html,
 body {
-  margin: 0;
+	margin: 0;
 }
 
 /* The embed route must be transparent so the host page shows through around
    the floating panel. */
 body:has([data-embed-surface]) {
-  background: transparent;
+	background: transparent;
 }
 
 /* DSFR resets every `button` (background-color, border, appearance) because its
@@ -27,12 +27,12 @@ body:has([data-embed-surface]) {
    over Tailwind's `.text-white` utility, because DSFR's rules sit outside any
    cascade layer while Tailwind's utilities sit in `@layer utilities`. */
 body:has([data-embed-surface]) button[aria-label^="Ouvrir"] {
-  appearance: auto;
-  background-color: #000091;
+	appearance: auto;
+	background-color: #000091;
 }
 
 body:has([data-embed-surface]) button[aria-label^="Ouvrir"] svg {
-  stroke: #fff;
+	stroke: #fff;
 }
 
 /* DSFR gives every paragraph a 24px bottom margin. The widget spaces its own
@@ -41,5 +41,5 @@ body:has([data-embed-surface]) button[aria-label^="Ouvrir"] svg {
    the logo and the name visibly off-centre. Unlayered, because a Tailwind
    utility such as `mb-0` would lose to DSFR's rule. */
 body:has([data-embed-surface]) p {
-  margin-bottom: 0;
+	margin-bottom: 0;
 }

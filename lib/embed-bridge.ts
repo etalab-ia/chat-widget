@@ -10,9 +10,9 @@
 export const EMBED_MESSAGE_SOURCE = "anssi-widget";
 
 export type EmbedResizeMessage = {
-  source: typeof EMBED_MESSAGE_SOURCE;
-  type: "resize";
-  open: boolean;
+	source: typeof EMBED_MESSAGE_SOURCE;
+	type: "resize";
+	open: boolean;
 };
 
 /**
@@ -23,7 +23,7 @@ export type EmbedResizeMessage = {
  * match is on its normalised output.
  */
 const ORIGIN_PATTERN =
-  /^https?:\/\/(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:]+\])(?::\d+)?$/;
+	/^https?:\/\/(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:]+\])(?::\d+)?$/;
 
 /**
  * Origins allowed to frame the widget, from `EMBED_ALLOWED_PARENTS`
@@ -37,36 +37,36 @@ const ORIGIN_PATTERN =
  * rather than silently half-applied: list every host page instead.
  */
 export function parseAllowedParents(raw: string | undefined): string[] {
-  if (!raw) return [];
+	if (!raw) return [];
 
-  const origins = new Set<string>();
-  for (const entry of raw.split(",")) {
-    const candidate = entry.trim();
-    if (!candidate) continue;
+	const origins = new Set<string>();
+	for (const entry of raw.split(",")) {
+		const candidate = entry.trim();
+		if (!candidate) continue;
 
-    let origin: string;
-    try {
-      const url = new URL(candidate);
-      if (url.pathname !== "/" || url.search || url.hash) continue;
-      origin = url.origin;
-    } catch {
-      continue;
-    }
+		let origin: string;
+		try {
+			const url = new URL(candidate);
+			if (url.pathname !== "/" || url.search || url.hash) continue;
+			origin = url.origin;
+		} catch {
+			continue;
+		}
 
-    if (!ORIGIN_PATTERN.test(origin)) continue;
-    origins.add(origin);
-  }
+		if (!ORIGIN_PATTERN.test(origin)) continue;
+		origins.add(origin);
+	}
 
-  return [...origins];
+	return [...origins];
 }
 
 /** Absolute origin of a URL, or null when it cannot be parsed. */
 export function originOf(url: string, base?: string): string | null {
-  try {
-    return new URL(url, base).origin;
-  } catch {
-    return null;
-  }
+	try {
+		return new URL(url, base).origin;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -80,19 +80,19 @@ export function originOf(url: string, base?: string): string | null {
  * addressed to `window.parent` only.
  */
 export function resolveTargetOrigin({
-  ownOrigin,
-  allowedParents,
-  referrer,
+	ownOrigin,
+	allowedParents,
+	referrer,
 }: {
-  ownOrigin: string;
-  allowedParents: readonly string[];
-  referrer: string;
+	ownOrigin: string;
+	allowedParents: readonly string[];
+	referrer: string;
 }): string {
-  if (!referrer) return "*";
+	if (!referrer) return "*";
 
-  const parentOrigin = originOf(referrer);
-  if (!parentOrigin) return "*";
+	const parentOrigin = originOf(referrer);
+	if (!parentOrigin) return "*";
 
-  const allowed = new Set([ownOrigin, ...allowedParents]);
-  return allowed.has(parentOrigin) ? parentOrigin : "*";
+	const allowed = new Set([ownOrigin, ...allowedParents]);
+	return allowed.has(parentOrigin) ? parentOrigin : "*";
 }
