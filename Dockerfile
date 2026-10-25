@@ -1,19 +1,22 @@
 # Multi-stage build for the Next.js standalone server.
-FROM node:22-slim AS deps
+FROM node:26-slim AS deps
 WORKDIR /app
+# Node 26 no longer bundles Corepack; install the pinned package manager.
+RUN npm install --global pnpm@11.18.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
-FROM node:22-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
+RUN npm install --global pnpm@11.18.0
 ENV NEXT_TELEMETRY_DISABLED=1
 # A placeholder keeps the build hermetic: the key is only read at runtime.
 ENV ALBERT_API_KEY=sk-build-placeholder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN corepack enable && pnpm build
+RUN pnpm build
 
-FROM node:22-slim AS run
+FROM node:26-slim AS run
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
