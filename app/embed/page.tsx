@@ -3,8 +3,8 @@ import { EmbedWidget } from "@/components/widget/embed-widget";
 import { parseAllowedParents } from "@/lib/embed-bridge";
 
 export const metadata: Metadata = {
-  title: "Assistant ANSSI",
-  robots: { index: false, follow: false },
+	title: "Assistant ANSSI",
+	robots: { index: false, follow: false },
 };
 
 /**
@@ -19,9 +19,9 @@ const ALLOWED_PARENTS = parseAllowedParents(process.env.EMBED_ALLOWED_PARENTS);
  * widget: no site chrome, transparent background.
  */
 export default function EmbedPage() {
-  return (
-    <div data-embed-surface>
-      <EmbedWidget allowedParents={ALLOWED_PARENTS} />
-    </div>
-  );
+	return (
+		<div data-embed-surface>
+			<EmbedWidget allowedParents={ALLOWED_PARENTS} />
+		</div>
+	);
 }

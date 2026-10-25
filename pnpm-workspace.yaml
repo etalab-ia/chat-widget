@@ -1,9 +1,15 @@
 # Enforce a one-week minimum release age on newly published packages to limit
 # exposure to supply-chain attacks (squad dependency policy).
 minimumReleaseAge: 10080
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+trustLockfile: false
+blockExoticSubdeps: true
 
 # Build scripts are denied by default; allow only what the toolchain needs.
 allowBuilds:
+  # CVE Lite's local advisory database uses this native SQLite binding.
+  better-sqlite3: true
   esbuild: true
   sharp: false
   unrs-resolver: false

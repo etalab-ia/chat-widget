@@ -11,51 +11,51 @@
 type Window = { startedAt: number; count: number };
 
 export type RateLimitDecision = {
-  allowed: boolean;
-  /** Seconds the caller should wait before retrying, when refused. */
-  retryAfterSeconds: number;
+	allowed: boolean;
+	/** Seconds the caller should wait before retrying, when refused. */
+	retryAfterSeconds: number;
 };
 
 export class FixedWindowLimiter {
-  private readonly windows = new Map<string, Window>();
-  private lastSweep = 0;
+	private readonly windows = new Map<string, Window>();
+	private lastSweep = 0;
 
-  constructor(
-    private readonly limit: number,
-    private readonly windowMs: number,
-    private readonly now: () => number = Date.now,
-  ) {}
+	constructor(
+		private readonly limit: number,
+		private readonly windowMs: number,
+		private readonly now: () => number = Date.now,
+	) {}
 
-  check(key: string): RateLimitDecision {
-    const current = this.now();
-    this.sweep(current);
+	check(key: string): RateLimitDecision {
+		const current = this.now();
+		this.sweep(current);
 
-    const window = this.windows.get(key);
-    if (!window || current - window.startedAt >= this.windowMs) {
-      this.windows.set(key, { startedAt: current, count: 1 });
-      return { allowed: true, retryAfterSeconds: 0 };
-    }
+		const window = this.windows.get(key);
+		if (!window || current - window.startedAt >= this.windowMs) {
+			this.windows.set(key, { startedAt: current, count: 1 });
+			return { allowed: true, retryAfterSeconds: 0 };
+		}
 
-    if (window.count >= this.limit) {
-      const remainingMs = this.windowMs - (current - window.startedAt);
-      return {
-        allowed: false,
-        retryAfterSeconds: Math.max(1, Math.ceil(remainingMs / 1000)),
-      };
-    }
+		if (window.count >= this.limit) {
+			const remainingMs = this.windowMs - (current - window.startedAt);
+			return {
+				allowed: false,
+				retryAfterSeconds: Math.max(1, Math.ceil(remainingMs / 1000)),
+			};
+		}
 
-    window.count += 1;
-    return { allowed: true, retryAfterSeconds: 0 };
-  }
+		window.count += 1;
+		return { allowed: true, retryAfterSeconds: 0 };
+	}
 
-  /** Drops expired windows so a flood of distinct IPs cannot grow memory. */
-  private sweep(current: number) {
-    if (current - this.lastSweep < this.windowMs) return;
-    this.lastSweep = current;
-    for (const [key, window] of this.windows) {
-      if (current - window.startedAt >= this.windowMs) this.windows.delete(key);
-    }
-  }
+	/** Drops expired windows so a flood of distinct IPs cannot grow memory. */
+	private sweep(current: number) {
+		if (current - this.lastSweep < this.windowMs) return;
+		this.lastSweep = current;
+		for (const [key, window] of this.windows) {
+			if (current - window.startedAt >= this.windowMs) this.windows.delete(key);
+		}
+	}
 }
 
 /**
@@ -68,12 +68,12 @@ export class FixedWindowLimiter {
  * in the route is what bounds total cost.
  */
 export function clientKey(headers: Headers): string {
-  const realIp = headers.get("x-real-ip")?.trim();
-  if (realIp) return realIp;
+	const realIp = headers.get("x-real-ip")?.trim();
+	if (realIp) return realIp;
 
-  const forwarded = headers.get("x-forwarded-for");
-  const first = forwarded?.split(",")[0]?.trim();
-  if (first) return first;
+	const forwarded = headers.get("x-forwarded-for");
+	const first = forwarded?.split(",")[0]?.trim();
+	if (first) return first;
 
-  return "unknown";
+	return "unknown";
 }
