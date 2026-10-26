@@ -51,6 +51,12 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Install browser for integration tests
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Test iframe and Web Component integrations
+        run: pnpm test:browser
+
   deploy:
     name: Deploy to Scaleway
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -137,7 +143,9 @@ jobs:
           for _ in $(seq 1 12); do
             if curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/" \
               && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/embed" \
-              && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/embed.js"; then
+              && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/embed.js" \
+              && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/widget.js" \
+              && curl --fail --silent --show-error --max-time 45 --output /dev/null "${endpoint}/widget.css"; then
               echo "Deployment is healthy at ${endpoint}"
               exit 0
             fi

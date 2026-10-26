@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatModelAdapter, ThreadMessage } from "@assistant-ui/react";
-import { LIMITS } from "@/lib/config";
+import { LIMITS } from "@/lib/limits";
 import type { Citation } from "@/lib/rag/citations";
 import type { StreamEvent } from "@/lib/rag/stream-protocol";
 
@@ -76,9 +76,11 @@ export async function* runChat(params: {
 	question: string;
 	history: Array<{ role: "user" | "assistant"; content: string }>;
 	signal?: AbortSignal;
+	apiUrl?: string;
 }): AsyncGenerator<WidgetRunResult, void, unknown> {
-	const response = await fetch("/api/chat", {
+	const response = await fetch(params.apiUrl ?? "/api/chat", {
 		method: "POST",
+		credentials: "omit",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			question: params.question,
@@ -175,26 +177,36 @@ export async function* runChat(params: {
 }
 
 /** assistant-ui adapter wrapping the streaming fetcher above. */
-export const chatModelAdapter: ChatModelAdapter = {
-	async run({ messages, abortSignal }) {
-		const latest = messages[messages.length - 1];
-		const question = latest ? messageToText(latest) : "";
+export function createChatModelAdapter(
+	apiUrl = "/api/chat",
+	lifetimeSignal?: AbortSignal,
+): ChatModelAdapter {
+	return {
+		async run({ messages, abortSignal }) {
+			const latest = messages[messages.length - 1];
+			const question = latest ? messageToText(latest) : "";
 
-		if (!question) {
-			return { content: [{ type: "text", text: "Posez une question." }] };
-		}
+			if (!question) {
+				return { content: [{ type: "text", text: "Posez une question." }] };
+			}
 
-		const history = collectHistory(messages);
+			const history = collectHistory(messages);
 
-		let last: WidgetRunResult | undefined;
-		for await (const update of runChat({
-			question,
-			history,
-			signal: abortSignal,
-		})) {
-			last = update;
-		}
+			let last: WidgetRunResult | undefined;
+			for await (const update of runChat({
+				question,
+				history,
+				apiUrl,
+				signal: lifetimeSignal
+					? AbortSignal.any([abortSignal, lifetimeSignal])
+					: abortSignal,
+			})) {
+				last = update;
+			}
 
-		return last ?? { content: [{ type: "text", text: "" }] };
-	},
-};
+			return last ?? { content: [{ type: "text", text: "" }] };
+		},
+	};
+}
+
+export const chatModelAdapter = createChatModelAdapter();

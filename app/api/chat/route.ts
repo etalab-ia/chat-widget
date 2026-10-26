@@ -4,6 +4,11 @@ import { blocksToSources, buildContextBlocks } from "@/lib/rag/citations";
 import { buildChatMessages } from "@/lib/rag/prompt";
 import { chatRequestSchema, encodeEvent } from "@/lib/rag/stream-protocol";
 import { clientKey, FixedWindowLimiter } from "@/lib/rate-limit";
+import {
+	deniedOrigin,
+	widgetCorsHeaders,
+	widgetPreflight,
+} from "@/lib/widget-cors";
 
 // Process-wide, so the counters survive across requests within one instance.
 const perClient = new FixedWindowLimiter(
@@ -16,6 +21,19 @@ const perDay = new FixedWindowLimiter(
 );
 
 export async function POST(request: Request) {
+	const cors = widgetCorsHeaders(request, process.env.WIDGET_ALLOWED_ORIGINS);
+	if (!cors) return deniedOrigin();
+	const response = await handleChat(request);
+	const headers = new Headers(response.headers);
+	for (const [key, value] of cors) headers.set(key, value);
+	return new Response(response.body, { status: response.status, headers });
+}
+
+export function OPTIONS(request: Request) {
+	return widgetPreflight(request, process.env.WIDGET_ALLOWED_ORIGINS);
+}
+
+async function handleChat(request: Request) {
 	let parsedBody: unknown;
 	try {
 		parsedBody = await request.json();

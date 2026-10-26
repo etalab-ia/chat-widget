@@ -1,0 +1,171 @@
+import { expect, test } from "@playwright/test";
+
+test("standalone artifact renders without an iframe and contains CSS and portals", async ({
+	page,
+}) => {
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	await page.route("**/api/chat", (route) =>
+		route.fulfill({
+			contentType: "application/x-ndjson",
+			headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4311" },
+			body: `${JSON.stringify({ type: "sources", sources: [{ id: "1", title: "Guide", url: "https://example.org/guide.pdf#page=2", page: 2 }] })}\n${JSON.stringify({ type: "delta", text: "Réponse sûre <script>alert(1)</script> [1]." })}\n{"type":"done"}\n`,
+		}),
+	);
+	await page.goto("http://127.0.0.1:4311");
+	const widget = page.locator("anssi-chat");
+	const trigger = widget.getByRole("button", {
+		name: "Ouvrir l'assistant ANSSI",
+	});
+	await expect(trigger).toBeVisible();
+	await expect(page.locator("iframe")).toHaveCount(0);
+	await expect(trigger).toHaveCSS("background-color", "rgb(0, 0, 145)");
+	await expect(page.locator("#host")).toHaveCSS(
+		"background-color",
+		"rgb(255, 0, 0)",
+	);
+	await trigger.click();
+	const input = widget.getByRole("textbox", { name: "Votre question" });
+	await expect(input).toBeVisible();
+	await input.fill("Question de test");
+	await widget.getByRole("button", { name: "Envoyer" }).click();
+	await expect(
+		widget.getByText("Réponse sûre", { exact: false }),
+	).toBeVisible();
+	const citation = widget.getByRole("link", {
+		name: "Source 1, ouvrir la page 2",
+	});
+	await expect(citation).toHaveAttribute(
+		"href",
+		"https://example.org/guide.pdf#page=2",
+	);
+	await expect(citation).toHaveAttribute("rel", "noopener noreferrer");
+	expect(
+		await page.evaluate(
+			() =>
+				document.querySelectorAll("[data-radix-popper-content-wrapper]").length,
+		),
+	).toBe(0);
+	await page.keyboard.press("Escape");
+	await expect(input).not.toBeVisible();
+	await widget.evaluate((element) => {
+		element.remove();
+		document.body.append(element);
+	});
+	await expect(trigger).toBeVisible();
+	await trigger.click();
+	await expect(input).toBeVisible();
+	expect(errors).toEqual([]);
+});
+
+test("endpoint changes reject executable URLs and allow recovery", async ({
+	page,
+}) => {
+	await page.goto("http://127.0.0.1:4311");
+	const widget = page.locator("anssi-chat");
+	await expect(
+		widget.getByRole("button", { name: "Ouvrir l'assistant ANSSI" }),
+	).toBeVisible();
+	await widget.evaluate((element) =>
+		element.setAttribute("api-url", "javascript:alert(1)"),
+	);
+	await expect(widget.getByRole("alert")).toContainText("HTTP(S)");
+	await widget.evaluate((element) =>
+		element.setAttribute("api-url", "http://127.0.0.1:4310/api/chat"),
+	);
+	await expect(
+		widget.getByRole("button", { name: "Ouvrir l'assistant ANSSI" }),
+	).toBeVisible();
+});
+
+test("landing selector switches the actual integration and snippet", async ({
+	page,
+}) => {
+	await page.goto("/");
+	const sameOriginStatus = await page.evaluate(
+		async () =>
+			(
+				await fetch("/api/chat", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ question: "" }),
+				})
+			).status,
+	);
+	expect(sameOriginStatus).toBe(400);
+	await expect(page.locator("iframe[data-anssi-widget]")).toHaveCount(1);
+	await page
+		.locator("label")
+		.filter({ hasText: /^Web Component$/ })
+		.click();
+	await expect(
+		page.getByRole("radio", { name: "Web Component", exact: true }),
+	).toBeChecked();
+	await expect(page.locator("iframe")).toHaveCount(0);
+	await expect(
+		page
+			.locator("anssi-chat")
+			.getByRole("button", { name: "Ouvrir l'assistant ANSSI" }),
+	).toBeVisible();
+	await expect(page.locator("pre")).toContainText("<anssi-chat");
+	await page
+		.locator("label")
+		.filter({ hasText: /^Iframe$/ })
+		.click();
+	await expect(page.locator("anssi-chat")).toHaveCount(0);
+	await expect(page.locator("iframe[data-anssi-widget]")).toHaveCount(1);
+	await expect(page.locator("pre")).toContainText("embed.js");
+});
+
+test("real API CORS accepts configured hosts and refuses others before processing", async ({
+	page,
+	request,
+}) => {
+	await page.goto("http://127.0.0.1:4311");
+	const result = await page.evaluate(async () => {
+		const response = await fetch("http://127.0.0.1:4310/api/chat", {
+			method: "POST",
+			credentials: "omit",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ question: "" }),
+		});
+		return { status: response.status, body: await response.json() };
+	});
+	expect(result.status).toBe(400);
+	expect(result.body.error).toBe("Question invalide.");
+	const denied = await request.post("/api/chat", {
+		headers: { Origin: "https://evil.example" },
+		data: { question: "test" },
+	});
+	expect(denied.status()).toBe(403);
+	expect(denied.headers()["access-control-allow-origin"]).toBeUndefined();
+	const asset = await request.get("/widget.js", {
+		headers: { Origin: "https://evil.example" },
+	});
+	expect(asset.status()).toBe(200);
+	// Downloading public client code does not confer API access.
+	expect(asset.headers()["access-control-allow-origin"]).toBe("*");
+	expect(asset.headers()["access-control-allow-credentials"]).toBeUndefined();
+});
+
+test("mobile panel fits the viewport and still accepts typing inside Shadow DOM", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto("http://127.0.0.1:4311");
+	const widget = page.locator("anssi-chat");
+	await widget
+		.getByRole("button", { name: "Ouvrir l'assistant ANSSI" })
+		.click();
+	const input = widget.getByRole("textbox", { name: "Votre question" });
+	await input.fill("Bonjour");
+	await expect(input).toHaveValue("Bonjour");
+	const panel = await widget
+		.locator("[data-radix-popper-content-wrapper]")
+		.boundingBox();
+	if (!panel) throw new Error("Expected a visible panel");
+	expect(panel.x).toBeGreaterThanOrEqual(0);
+	expect(panel.x + panel.width).toBeLessThanOrEqual(390);
+	expect(panel.y).toBeGreaterThanOrEqual(0);
+	expect(panel.y + panel.height).toBeLessThanOrEqual(844);
+});

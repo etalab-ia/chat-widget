@@ -52,13 +52,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 }
 
 /** Public limits shared by the API route and the widget UI. */
-export const LIMITS = {
-	maxQuestionLength: 1000,
-	maxTurnsInHistory: 6,
-	maxHistoryEntries: 20,
-	searchResults: 8,
-	maxChunkCharacters: 1200,
-} as const;
+export { LIMITS } from "./limits";
 
 /**
  * Abuse controls for a public endpoint with no user accounts.

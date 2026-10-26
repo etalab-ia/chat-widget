@@ -5,8 +5,8 @@ import {
 	AssistantRuntimeProvider,
 	useLocalRuntime,
 } from "@assistant-ui/react";
-import { useState } from "react";
-import { chatModelAdapter } from "./chat-adapter";
+import { useMemo, useState } from "react";
+import { createChatModelAdapter } from "./chat-adapter";
 import { ChatIcon, CloseIcon } from "./icons";
 import { WidgetThread } from "./thread";
 
@@ -16,10 +16,20 @@ import { WidgetThread } from "./thread";
  */
 export function AssistantModal({
 	onOpenChange,
+	apiUrl = "/api/chat",
+	portalContainer,
+	lifetimeSignal,
 }: {
 	onOpenChange?: (open: boolean) => void;
+	apiUrl?: string;
+	portalContainer?: HTMLElement;
+	lifetimeSignal?: AbortSignal;
 }) {
-	const runtime = useLocalRuntime(chatModelAdapter);
+	const adapter = useMemo(
+		() => createChatModelAdapter(apiUrl, lifetimeSignal),
+		[apiUrl, lifetimeSignal],
+	);
+	const runtime = useLocalRuntime(adapter);
 	const [open, setOpen] = useState(false);
 
 	const handleOpenChange = (next: boolean) => {
@@ -40,6 +50,7 @@ export function AssistantModal({
 				</AssistantModalPrimitive.Anchor>
 
 				<AssistantModalPrimitive.Content
+					portalProps={{ container: portalContainer }}
 					side="top"
 					align="end"
 					sideOffset={12}
