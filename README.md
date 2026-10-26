@@ -2,7 +2,7 @@
 
 Widget de chat RAG pour interroger le corpus public des guides de l'ANSSI depuis une page intranet, via l'API Albert. POC.
 
-Le widget est chargé dans une iframe. L'architecture reste compatible avec un empaquetage ultérieur en web component : la configuration, le protocole de streaming et le contrat de redimensionnement sont indépendants du rendu.
+Deux intégrations partagent le même composant React et assistant-ui : une iframe et un Web Component sans iframe. La page de démonstration permet de choisir le mode, affiche l'extrait correspondant et remplace le widget actif. Changer de mode réinitialise la conversation.
 
 ## Fonctionnement
 
@@ -52,6 +52,8 @@ La page `/` simule une page intranet et charge le widget depuis `/embed`. La pag
 | --- | --- |
 | `pnpm dev` | serveur de développement |
 | `pnpm build` | build de production |
+| `pnpm build:widget` | bundle navigateur autonome et feuille de style du Web Component |
+| `pnpm test:browser` | tests Playwright après le build de production |
 | `pnpm lint` | Biome et règles Next.js spécifiques avec ESLint |
 | `pnpm check` | vérification Biome en mode CI |
 | `pnpm format` | formatage et corrections Biome sûres |
@@ -108,6 +110,35 @@ Deux réglages côté serveurs complètent l'intégration :
 Le redimensionnement évite `postMessage(..., "*")` : le widget adresse son message à l'origine du parent, qu'il lit dans `document.referrer`. C'est la raison du `referrerpolicy="strict-origin-when-cross-origin"` sur l'iframe : pour une page hôte sur un autre domaine, le navigateur ne transmet que l'origine, jamais le chemin ni les paramètres ; pour une page de même origine, le widget n'a rien de plus à savoir. L'attribut est aussi présent sur la balise `script`, afin d'appliquer la même règle à la requête `/embed.js`. Si la page hôte impose `referrerpolicy="no-referrer"`, le référent est vide et le message retombe sur `"*"` — il ne contient alors que l'état ouvert/fermé.
 
 La liste des parents est volontairement limitée à des origines nues : une entrée avec un chemin ou une requête ne restreindrait pas `frame-ancestors` comme elle en a l'air, et un joker (`https://*.exemple.gouv.fr`) serait accepté par l'en-tête mais jamais reconnu par le widget, qui compare des origines entières. Ces entrées sont écartées au chargement ; il faut lister chaque page hôte.
+
+### Web Component sans iframe
+
+```html
+<script type="module" src="https://<hote>/widget.js"></script>
+<anssi-chat api-url="https://<hote>/api/chat"></anssi-chat>
+```
+
+Le navigateur n'a besoin d'aucun framework installé : `widget.js` embarque React, ReactDOM et assistant-ui, sans Next.js ni DSFR. Il charge `widget.css` à côté de son propre fichier et place le panneau et ses styles dans un Shadow DOM. Les deux fichiers et `widget.js.LEGAL.txt` sont générés par `pnpm dev` et `pnpm build`, puis inclus dans l'image. Pour les auto-héberger, copier ces trois fichiers ensemble, conserver les mentions de licence et renseigner explicitement `api-url` vers le serveur du service. Sans attribut, l'API est `/api/chat` sur l'origine du script.
+
+Configurer `WIDGET_ALLOWED_ORIGINS` avec les origines hôtes autorisées, séparées par des virgules, au démarrage du service. Une modification exige un redémarrage, pas un rebuild. Aucun joker ni origine opaque `null` n'est accepté par l'API. Les appels de même origine fonctionnent sans configuration. Les fichiers publics `widget.js` et `widget.css` autorisent le chargement depuis toute origine, sans cookies : ils ne contiennent aucun secret. Cette ouverture ne donne pas accès à l'API. La page hôte doit autoriser le service dans `script-src`, `style-src` et `connect-src`; `frame-src` n'est pas nécessaire. L'API autorise uniquement les pré-vérifications CORS pour POST avec `Content-Type`, sans cookies ni en-tête d'authentification. Les erreurs et `Retry-After` restent lisibles par les hôtes autorisés.
+
+`api-url` accepte une URL HTTP(S), relative à la page ou absolue, sans identifiants ni fragment. Changer cet attribut ou retirer l'élément annule la requête active et réinitialise la conversation. Le même élément peut être réinséré. Les événements `open-change` (`detail.open`) et `widget-error` (`detail.message`) remontent vers la page; ne pas y transmettre de secrets. Éviter plusieurs assistants flottants sur une même page : ils occupent le même coin de fenêtre.
+
+**Différence de sécurité :** le Shadow DOM isole les styles, pas les privilèges JavaScript. Le composant s'exécute avec ceux de la page hôte et n'a ni sandbox, ni politique de permissions propre. Utiliser une version revue et maîtrisée par l'intégrateur, idéalement auto-hébergée; une URL distante mutable implique de faire confiance à chaque mise à jour. Les contrôles CORS ne sont pas une authentification et ne remplacent pas les plafonds serveur. L'iframe sur une origine distincte reste l'option qui sépare les DOM et les stockages d'origine.
+
+Le composant React partagé `AssistantModal` accepte également `apiUrl`; il est utilisé directement par les deux modes, mais aucun paquet npm React n'est publié à ce stade. Dans une application React, ses dépendances et styles doivent être intégrés par l'application, et les portails doivent rester dans le conteneur stylé.
+
+### Vérification navigateur
+
+La comparaison de même origine utilise l'en-tête `Host` et le protocole externe `X-Forwarded-Proto` fourni par le reverse proxy; celui-ci doit maîtriser ces en-têtes. Ce contrôle n'est pas une authentification.
+
+```bash
+pnpm exec playwright install chromium
+pnpm build
+pnpm test:browser
+```
+
+Les tests utilisent uniquement des réponses simulées ou des requêtes invalides, sans appeler Albert. Le serveur de test autorise uniquement l'origine de la page HTML de test, qui interdit les iframes et applique des styles hostiles pour vérifier le bundle distribué. Les tests couvrent les citations, l'échappement du texte, les portails, le démontage, la validation d'URL et le changement de mode. Cette origine de test n'est pas à ajouter à la configuration de production.
 
 ## Sécurité
 

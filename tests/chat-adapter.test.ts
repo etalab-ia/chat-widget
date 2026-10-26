@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	citationsToParts,
 	collectHistory,
+	createChatModelAdapter,
 	messageToText,
 	runChat,
 	type WidgetRunResult,
@@ -30,6 +31,64 @@ function message(
 		},
 	} as unknown as ThreadMessage;
 }
+
+describe("configurable endpoint", () => {
+	it("uses the configured URL and never sends host cookies", async () => {
+		const mock = vi
+			.fn()
+			.mockResolvedValue(
+				new Response('{"type":"delta","text":"ok"}\n{"type":"done"}\n'),
+			);
+		vi.stubGlobal("fetch", mock);
+		try {
+			const updates = [];
+			for await (const update of runChat({
+				question: "test",
+				history: [],
+				apiUrl: "https://widget.example.org/api/chat",
+			})) {
+				updates.push(update);
+			}
+			expect(updates).toHaveLength(1);
+			expect(mock).toHaveBeenCalledWith(
+				"https://widget.example.org/api/chat",
+				expect.objectContaining({ credentials: "omit", method: "POST" }),
+			);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+	it("aborts an active fetch when the custom element lifetime ends", async () => {
+		const lifetime = new AbortController();
+		let signal: AbortSignal | undefined;
+		const mock = vi.fn().mockImplementation((_url, options: RequestInit) => {
+			signal = options.signal as AbortSignal;
+			return new Promise((_resolve, reject) =>
+				signal?.addEventListener("abort", () =>
+					reject(new DOMException("aborted", "AbortError")),
+				),
+			);
+		});
+		vi.stubGlobal("fetch", mock);
+		try {
+			const adapter = createChatModelAdapter("/custom", lifetime.signal);
+			const result = adapter.run({
+				messages: [message("user", "test")],
+				abortSignal: new AbortController().signal,
+			} as unknown as Parameters<typeof adapter.run>[0]);
+			const rejected = expect(result).rejects.toHaveProperty(
+				"name",
+				"AbortError",
+			);
+			expect(signal?.aborted).toBe(false);
+			lifetime.abort();
+			await rejected;
+			expect(signal?.aborted).toBe(true);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+});
 
 describe("messageToText", () => {
 	it("keeps text parts and ignores citations", () => {

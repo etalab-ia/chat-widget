@@ -50,6 +50,15 @@ const nextConfig: NextConfig = {
 	},
 	async headers() {
 		return [
+			// Public code and styles contain no credentials. Only the chat API
+			// requires an exact host allowlist, configured at service startup.
+			{
+				source: "/widget.:extension(js|css)",
+				headers: [
+					{ key: "Access-Control-Allow-Origin", value: "*" },
+					{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+				],
+			},
 			{
 				source: "/:path*",
 				headers: [

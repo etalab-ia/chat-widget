@@ -11,5 +11,7 @@ allowBuilds:
   # CVE Lite's local advisory database uses this native SQLite binding.
   better-sqlite3: true
   esbuild: true
+  # Only one-shot CSS builds are used; native file watching is unnecessary.
+  '@parcel/watcher': false
   sharp: false
   unrs-resolver: false
