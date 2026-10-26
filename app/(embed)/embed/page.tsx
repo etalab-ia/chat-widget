@@ -4,6 +4,8 @@ import { parseAllowedParents } from "@/lib/embed-bridge";
 
 export const metadata: Metadata = {
 	title: "Assistant ANSSI",
+	description:
+		"Widget de chat RAG pour interroger le corpus public des guides de l'ANSSI via l'API Albert.",
 	robots: { index: false, follow: false },
 };
 
@@ -15,13 +17,9 @@ export const metadata: Metadata = {
 const ALLOWED_PARENTS = parseAllowedParents(process.env.EMBED_ALLOWED_PARENTS);
 
 /**
- * Standalone surface intended to be embedded in an iframe. It carries only the
- * widget: no site chrome, transparent background.
+ * Surface embedded in a host page's iframe. It carries only the widget: no site
+ * chrome, no design system, transparent background.
  */
 export default function EmbedPage() {
-	return (
-		<div data-embed-surface>
-			<EmbedWidget allowedParents={ALLOWED_PARENTS} />
-		</div>
-	);
+	return <EmbedWidget allowedParents={ALLOWED_PARENTS} />;
 }

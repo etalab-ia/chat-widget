@@ -169,3 +169,42 @@ test("mobile panel fits the viewport and still accepts typing inside Shadow DOM"
 	expect(panel.y).toBeGreaterThanOrEqual(0);
 	expect(panel.y + panel.height).toBeLessThanOrEqual(844);
 });
+
+// The iframe route used to share the landing page's root layout, which loaded
+// DSFR. DSFR's unlayered `button` reset beat Tailwind's layered utilities, so
+// the launcher lost its blue background on hover (a white icon on a pale
+// circle) and the send button lost it entirely. /embed now has its own root
+// layout without DSFR; these assertions are what failed before that split.
+test("iframe route keeps widget styling free of the site design system", async ({
+	page,
+}) => {
+	await page.goto("/embed");
+	const launcher = page.getByRole("button", {
+		name: "Ouvrir l'assistant ANSSI",
+	});
+	await expect(launcher).toBeVisible();
+
+	await expect(launcher).toHaveCSS("background-color", "rgb(0, 0, 145)");
+	await launcher.hover();
+	await expect(launcher).toHaveCSS("background-color", "rgb(0, 0, 145)");
+	// The icon must stay legible against the blue that hover no longer removes.
+	await expect(launcher.locator("svg")).toHaveCSS(
+		"stroke",
+		"rgb(255, 255, 255)",
+	);
+
+	// DSFR would resolve the body font to Marianne; the widget declares Arial.
+	await expect(page.locator("body")).toHaveCSS(
+		"font-family",
+		/^Arial,\s*Helvetica,\s*sans-serif$/,
+	);
+
+	await launcher.click();
+	const send = page.getByRole("button", { name: "Envoyer" });
+	await expect(send).toHaveCSS("background-color", "rgb(0, 0, 145)");
+
+	// DSFR gives every paragraph a 24px bottom margin, which pushed the panel
+	// header off-centre. Tailwind preflight resets it to 0 instead.
+	const title = page.locator('[role="dialog"]').locator("p").first();
+	await expect(title).toHaveCSS("margin-bottom", "0px");
+});
