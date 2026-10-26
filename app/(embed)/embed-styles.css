@@ -1,0 +1,31 @@
+/* Stylesheet for the /embed route only.
+
+   The widget is built to be dropped into someone else's page, so its own
+   styling must not depend on the page around it. Tailwind is scanned from the
+   widget components alone (`source(none)` plus `@source`), exactly as in
+   widget/styles.css, so this route carries no design system: no DSFR reset to
+   override the widget's declared colours, and no DSFR font to inherit. */
+@import "tailwindcss" source(none);
+@source "../../components/widget";
+
+@theme inline {
+	--font-sans: Arial, Helvetica, sans-serif;
+}
+
+/* These rules mirror the `:host` block in widget/styles.css: when the widget is
+   embedded as an iframe, this document stands in for the shadow host, so it has
+   to carry the same base typography. The background stays transparent because
+   the host page sizes the iframe around the widget. */
+html,
+body {
+	margin: 0;
+	height: 100%;
+	background: transparent;
+	font-family: Arial, Helvetica, sans-serif;
+	font-size: 16px;
+	line-height: 1.5;
+	color: #161616;
+	color-scheme: light;
+	text-align: left;
+	direction: ltr;
+}

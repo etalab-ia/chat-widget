@@ -4,8 +4,8 @@ import type { Metadata } from "next";
 import "@codegouvfr/react-dsfr/dsfr/dsfr.min.css";
 import "@codegouvfr/react-dsfr/dsfr/utility/icons/icons.main.min.css";
 import "./globals.css";
-import { DsfrProvider, StartDsfrOnHydration } from "./dsfr-bootstrap";
-import { defaultColorScheme } from "./dsfr-bootstrap/defaultColorScheme";
+import { DsfrProvider, StartDsfrOnHydration } from "../dsfr-bootstrap";
+import { defaultColorScheme } from "../dsfr-bootstrap/defaultColorScheme";
 
 export const metadata: Metadata = {
 	title: "Assistant ANSSI",
