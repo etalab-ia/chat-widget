@@ -201,6 +201,175 @@ describe("AlbertClient.addChunks", () => {
 	});
 });
 
+describe("AlbertClient document inventory", () => {
+	it("paginates the complete document list", async () => {
+		const page = (offset: number, count: number) =>
+			Array.from({ length: count }, (_, index) => ({
+				id: offset + index + 1,
+				name: `${offset + index + 1}.pdf`,
+				collection_id: 7,
+				created: 1,
+			}));
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(Response.json({ data: page(0, 100) }))
+			.mockResolvedValueOnce(Response.json({ data: page(100, 1) }));
+		vi.stubGlobal("fetch", fetchMock);
+		const client = new AlbertClient({
+			baseUrl: "https://albert.test",
+			apiKey: "sk-test",
+		});
+
+		const documents = await client.listDocuments(7);
+
+		expect(documents).toHaveLength(101);
+		expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+			"https://albert.test/v1/documents?collection_id=7&limit=100&offset=0",
+			"https://albert.test/v1/documents?collection_id=7&limit=100&offset=100",
+		]);
+		vi.unstubAllGlobals();
+	});
+
+	it("finds completion metadata when Albert does not return the final chunk last", async () => {
+		const chunks = Array.from({ length: 100 }, (_, index) => ({
+			metadata: {
+				source_sha256: "abc",
+				page: index + 1,
+				sync_complete: index === 74,
+			},
+		}));
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(Response.json({ data: chunks }));
+		vi.stubGlobal("fetch", fetchMock);
+		const client = new AlbertClient({
+			baseUrl: "https://albert.test",
+			apiKey: "sk-test",
+		});
+
+		await expect(client.getDocumentMetadata(42, 128)).resolves.toEqual({
+			source_sha256: "abc",
+			page: 75,
+			sync_complete: true,
+		});
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(String(fetchMock.mock.calls[0][0])).toBe(
+			"https://albert.test/v1/documents/42/chunks?limit=100&offset=0",
+		);
+		vi.unstubAllGlobals();
+	});
+
+	it("scans later chunk pages for a completion marker", async () => {
+		const firstPage = Array.from({ length: 100 }, (_, index) => ({
+			metadata: { source_sha256: "abc", page: index + 1, sync_complete: false },
+		}));
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(Response.json({ data: firstPage }))
+			.mockResolvedValueOnce(
+				Response.json({
+					data: [{ metadata: { source_sha256: "abc", sync_complete: true } }],
+				}),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+		const client = new AlbertClient({
+			baseUrl: "https://albert.test",
+			apiKey: "sk-test",
+		});
+
+		await expect(client.getDocumentMetadata(42, 101)).resolves.toEqual({
+			source_sha256: "abc",
+			sync_complete: true,
+		});
+		expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+			"https://albert.test/v1/documents/42/chunks?limit=100&offset=0",
+			"https://albert.test/v1/documents/42/chunks?limit=100&offset=100",
+		]);
+		vi.unstubAllGlobals();
+	});
+
+	it("keeps source metadata for an incomplete document", async () => {
+		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+			Response.json({
+				data: [{ metadata: { source_sha256: "abc", sync_complete: false } }],
+			}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const client = new AlbertClient({
+			baseUrl: "https://albert.test",
+			apiKey: "sk-test",
+		});
+
+		await expect(client.getDocumentMetadata(42, 1)).resolves.toEqual({
+			source_sha256: "abc",
+			sync_complete: false,
+		});
+		vi.unstubAllGlobals();
+	});
+
+	it("does not request chunks for an empty document", async () => {
+		const fetchMock = vi.fn<typeof fetch>();
+		vi.stubGlobal("fetch", fetchMock);
+		const client = new AlbertClient({
+			baseUrl: "https://albert.test",
+			apiKey: "sk-test",
+		});
+		await expect(client.getDocumentMetadata(42, 0)).resolves.toBeNull();
+		expect(fetchMock).not.toHaveBeenCalled();
+		vi.unstubAllGlobals();
+	});
+});
+
+describe("AlbertClient.ocr", () => {
+	it("retries a transient busy response and returns the successful OCR", async () => {
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(
+				Response.json({ detail: "Model is too busy" }, { status: 503 }),
+			)
+			.mockResolvedValueOnce(Response.json({ pages: [{ index: 0 }] }));
+		vi.stubGlobal("fetch", fetchMock);
+		vi.useFakeTimers();
+		try {
+			const client = new AlbertClient({
+				baseUrl: "https://albert.test",
+				apiKey: "sk-test",
+			});
+			const pending = client.ocr({ documentUrl: "https://example.test/a.pdf" });
+			const assertion = expect(pending).resolves.toEqual({
+				pages: [{ index: 0 }],
+			});
+			await vi.runAllTimersAsync();
+			await assertion;
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("does not retry a permanent OCR request error", async () => {
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(
+				Response.json({ detail: "Invalid document" }, { status: 400 }),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const client = new AlbertClient({
+				baseUrl: "https://albert.test",
+				apiKey: "sk-test",
+			});
+			await expect(
+				client.ocr({ documentUrl: "https://example.test/a.pdf" }),
+			).rejects.toMatchObject({ status: 400 });
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+});
+
 describe("AlbertClient.streamChat CRLF framing", () => {
 	async function textFrom(body: string): Promise<string> {
 		vi.stubGlobal(

@@ -16,7 +16,11 @@ vi.mock("@/scripts/lib/extract", async () => {
 	return { ...actual, ...extractMock };
 });
 
-import { buildChunkMetadata, ingestSource } from "@/scripts/lib/ingest";
+import {
+	buildChunkMetadata,
+	checksumPdf,
+	ingestSource,
+} from "@/scripts/lib/ingest";
 
 const SOURCE: PdfSource = {
 	guideId: "guide-1",
@@ -46,7 +50,12 @@ function fakeClient(
 			return { id: 42 };
 		},
 		addChunks: async (documentId: number, chunks: StoredChunk[]) => {
-			calls.added.push({ documentId, chunks });
+			for (let index = 0; index < chunks.length; index += 64) {
+				calls.added.push({
+					documentId,
+					chunks: chunks.slice(index, index + 64),
+				});
+			}
 			if (behaviour.addChunksError) throw behaviour.addChunksError;
 		},
 		deleteDocument: async (documentId: number) => {
@@ -91,6 +100,7 @@ describe("ingestSource", () => {
 			pages: 2,
 			extraction: "mixed",
 			pagesWithoutText: [],
+			sourceSha256: checksumPdf(Buffer.from("%PDF-1.7\ntest\n")),
 		});
 		expect(calls.created).toEqual([{ name: "guide.pdf", collectionId: 7 }]);
 		expect(calls.added).toHaveLength(1);
@@ -118,6 +128,57 @@ describe("ingestSource", () => {
 			expect(chunk.metadata).not.toHaveProperty("citation_url");
 			expect(chunk.metadata?.source_url).toBe(SOURCE.pdfUrl);
 		}
+	});
+
+	it("reuses the sync download and stores its SHA-256 on every chunk", async () => {
+		const { client, calls } = fakeClient();
+		const pdf = Buffer.from("%PDF-1.7\nchecksummed\n");
+
+		await ingestSource({ source: SOURCE, collectionId: 7, client, pdf });
+
+		expect(extractMock.downloadPdf).not.toHaveBeenCalled();
+		for (const chunk of calls.added[0].chunks) {
+			expect(chunk.metadata?.source_sha256).toBe(checksumPdf(pdf));
+		}
+	});
+
+	it("marks only the final chunk complete for interrupted-run recovery", async () => {
+		const { client, calls } = fakeClient();
+
+		await ingestSource({ source: SOURCE, collectionId: 7, client });
+
+		const chunks = calls.added[0].chunks;
+		expect(chunks.at(0)?.metadata?.sync_complete).toBe(false);
+		expect(chunks.at(-1)?.metadata?.sync_complete).toBe(true);
+		for (const chunk of chunks) {
+			expect(chunk.metadata?.source_sha256).toBe(
+				checksumPdf(Buffer.from("%PDF-1.7\ntest\n")),
+			);
+		}
+	});
+
+	it("marks the final chunk of the final batch complete, not an earlier batch", async () => {
+		extractMock.extractPages.mockResolvedValue({
+			pages: Array.from({ length: 65 }, (_, index) => ({
+				page: index + 1,
+				text: "a".repeat(400),
+				extraction: "pdf",
+			})),
+			method: "pdf",
+			emptyPages: [],
+		});
+		const { client, calls } = fakeClient();
+
+		await ingestSource({ source: SOURCE, collectionId: 7, client });
+
+		expect(calls.added[0].chunks).toHaveLength(64);
+		expect(calls.added[1].chunks).toHaveLength(1);
+		expect(
+			calls.added[0].chunks.every(
+				(chunk) => chunk.metadata?.sync_complete === false,
+			),
+		).toBe(true);
+		expect(calls.added[1].chunks[0].metadata?.sync_complete).toBe(true);
 	});
 
 	it("deletes the document when a chunk batch fails, leaving nothing searchable", async () => {

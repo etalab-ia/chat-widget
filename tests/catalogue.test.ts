@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	type CatalogueEntry,
+	extractFrenchPdfSources,
 	extractPdfSources,
 	groupByLanguage,
 } from "@/scripts/lib/catalogue";
@@ -66,6 +67,55 @@ describe("extractPdfSources", () => {
 			},
 		]);
 		expect(sources).toHaveLength(0);
+	});
+});
+
+describe("extractFrenchPdfSources", () => {
+	it("keeps French PDFs only and supports several PDFs per guide", () => {
+		const entries: CatalogueEntry[] = [
+			{
+				id: "guide-fr",
+				nom: "Guide",
+				langue: "FR",
+				documents: [
+					{ url: "https://example.gouv.fr/a.pdf" },
+					{ url: "https://example.gouv.fr/b.pdf" },
+				],
+			},
+			...ENTRIES.filter((entry) => entry.langue === "EN"),
+		];
+		const sources = extractFrenchPdfSources(entries);
+		expect(sources).toHaveLength(2);
+		expect(sources.map((item) => item.guideId)).toEqual([
+			"guide-fr",
+			"guide-fr",
+		]);
+	});
+
+	it("fails closed when the French documents field changes shape", () => {
+		expect(() =>
+			extractFrenchPdfSources([{ id: "guide-fr", nom: "Guide", langue: "FR" }]),
+		).toThrow("Documents absents ou invalides");
+	});
+
+	it("rejects duplicate guide IDs and duplicate PDF URLs", () => {
+		const french: CatalogueEntry = {
+			id: "guide-fr",
+			nom: "Guide",
+			langue: "FR",
+			documents: [{ url: "https://example.gouv.fr/a.pdf" }],
+		};
+		expect(() => extractFrenchPdfSources([french, french])).toThrow("dupliqué");
+		expect(() =>
+			extractFrenchPdfSources([
+				french,
+				{ ...french, id: "other", nom: "Other" },
+			]),
+		).toThrow("PDF ANSSI français dupliqué");
+	});
+
+	it("rejects an empty French corpus rather than deleting the collection", () => {
+		expect(() => extractFrenchPdfSources([])).toThrow("aucun PDF français");
 	});
 });
 
