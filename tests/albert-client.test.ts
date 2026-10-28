@@ -230,10 +230,68 @@ describe("AlbertClient document inventory", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("requests the last chunk to read source and completion metadata", async () => {
+	it("finds completion metadata when Albert does not return the final chunk last", async () => {
+		const chunks = Array.from({ length: 100 }, (_, index) => ({
+			metadata: {
+				source_sha256: "abc",
+				page: index + 1,
+				sync_complete: index === 74,
+			},
+		}));
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(Response.json({ data: chunks }));
+		vi.stubGlobal("fetch", fetchMock);
+		const client = new AlbertClient({
+			baseUrl: "https://albert.test",
+			apiKey: "sk-test",
+		});
+
+		await expect(client.getDocumentMetadata(42, 128)).resolves.toEqual({
+			source_sha256: "abc",
+			page: 75,
+			sync_complete: true,
+		});
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(String(fetchMock.mock.calls[0][0])).toBe(
+			"https://albert.test/v1/documents/42/chunks?limit=100&offset=0",
+		);
+		vi.unstubAllGlobals();
+	});
+
+	it("scans later chunk pages for a completion marker", async () => {
+		const firstPage = Array.from({ length: 100 }, (_, index) => ({
+			metadata: { source_sha256: "abc", page: index + 1, sync_complete: false },
+		}));
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(Response.json({ data: firstPage }))
+			.mockResolvedValueOnce(
+				Response.json({
+					data: [{ metadata: { source_sha256: "abc", sync_complete: true } }],
+				}),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+		const client = new AlbertClient({
+			baseUrl: "https://albert.test",
+			apiKey: "sk-test",
+		});
+
+		await expect(client.getDocumentMetadata(42, 101)).resolves.toEqual({
+			source_sha256: "abc",
+			sync_complete: true,
+		});
+		expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+			"https://albert.test/v1/documents/42/chunks?limit=100&offset=0",
+			"https://albert.test/v1/documents/42/chunks?limit=100&offset=100",
+		]);
+		vi.unstubAllGlobals();
+	});
+
+	it("keeps source metadata for an incomplete document", async () => {
 		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
 			Response.json({
-				data: [{ metadata: { source_sha256: "abc", page: 1 } }],
+				data: [{ metadata: { source_sha256: "abc", sync_complete: false } }],
 			}),
 		);
 		vi.stubGlobal("fetch", fetchMock);
@@ -242,13 +300,10 @@ describe("AlbertClient document inventory", () => {
 			apiKey: "sk-test",
 		});
 
-		await expect(client.getDocumentMetadata(42, 7)).resolves.toEqual({
+		await expect(client.getDocumentMetadata(42, 1)).resolves.toEqual({
 			source_sha256: "abc",
-			page: 1,
+			sync_complete: false,
 		});
-		expect(String(fetchMock.mock.calls[0][0])).toBe(
-			"https://albert.test/v1/documents/42/chunks?limit=1&offset=6",
-		);
 		vi.unstubAllGlobals();
 	});
 

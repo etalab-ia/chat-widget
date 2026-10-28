@@ -233,18 +233,27 @@ export class AlbertClient {
 		}
 	}
 
-	/** Reads source metadata from the final chunk, including its completion marker. */
+	/** Albert can return the final inserted chunk anywhere in its chunk ordering. */
 	async getDocumentMetadata(
 		documentId: number,
 		chunkCount?: number,
 	): Promise<ChunkMetadata | null> {
 		if (chunkCount === 0) return null;
-		const offset = Math.max(0, (chunkCount ?? 1) - 1);
-		const response = await this.request(
-			`/v1/documents/${documentId}/chunks?limit=1&offset=${offset}`,
-		);
-		const payload = (await response.json()) as { data?: Chunk[] };
-		return payload.data?.[0]?.metadata ?? null;
+		const PAGE_SIZE = 100;
+		let fallback: ChunkMetadata | null = null;
+		for (let offset = 0; ; offset += PAGE_SIZE) {
+			const response = await this.request(
+				`/v1/documents/${documentId}/chunks?limit=${PAGE_SIZE}&offset=${offset}`,
+			);
+			const payload = (await response.json()) as { data?: Chunk[] };
+			const chunks = payload.data ?? [];
+			fallback ??= chunks[0]?.metadata ?? null;
+			const completed = chunks.find(
+				(chunk) => chunk.metadata?.sync_complete === true,
+			);
+			if (completed) return completed.metadata ?? null;
+			if (chunks.length < PAGE_SIZE) return fallback;
+		}
 	}
 
 	async ocr(params: {

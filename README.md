@@ -94,7 +94,7 @@ pnpm sync:anssi-fr --dry-run
 pnpm sync:anssi-fr --concurrency 2
 ```
 
-La synchronisation identifie chaque PDF par le couple `guide_id` et `source_url`, car une fiche ANSSI peut contenir plusieurs documents. Elle inventorie toutes les pages de l'API Albert puis télécharge chaque PDF du catalogue pour calculer son SHA-256 : le catalogue ne fournit pas cette empreinte. Chaque chunk porte `source_sha256` en plus des métadonnées de citation. Le dernier chunk porte `sync_complete: true`, ce qui permet à l'exécution suivante de ne pas retenir une indexation interrompue.
+La synchronisation identifie chaque PDF par le couple `guide_id` et `source_url`, car une fiche ANSSI peut contenir plusieurs documents. Elle inventorie toutes les pages de l'API Albert puis télécharge chaque PDF du catalogue pour calculer son SHA-256 : le catalogue ne fournit pas cette empreinte. Chaque chunk porte `source_sha256` en plus des métadonnées de citation. Le dernier chunk indexé porte `sync_complete: true`, ce qui permet à l'exécution suivante de ne pas retenir une indexation interrompue. Comme Albert ne renvoie pas nécessairement ce chunk en dernier, l'inventaire parcourt les pages de chunks pour repérer ce marqueur.
 
 - Si l'empreinte et les métadonnées sont identiques, le document est conservé sans extraction de texte, OCR, création de chunks ou réécriture Albert.
 - Un nouveau PDF est indexé. Un PDF ou un titre modifié est réindexé dans un nouveau document ; l'ancienne version n'est supprimée qu'après l'écriture complète de la nouvelle.
