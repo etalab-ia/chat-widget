@@ -50,7 +50,12 @@ function fakeClient(
 			return { id: 42 };
 		},
 		addChunks: async (documentId: number, chunks: StoredChunk[]) => {
-			calls.added.push({ documentId, chunks });
+			for (let index = 0; index < chunks.length; index += 64) {
+				calls.added.push({
+					documentId,
+					chunks: chunks.slice(index, index + 64),
+				});
+			}
 			if (behaviour.addChunksError) throw behaviour.addChunksError;
 		},
 		deleteDocument: async (documentId: number) => {
@@ -150,6 +155,30 @@ describe("ingestSource", () => {
 				checksumPdf(Buffer.from("%PDF-1.7\ntest\n")),
 			);
 		}
+	});
+
+	it("marks the final chunk of the final batch complete, not an earlier batch", async () => {
+		extractMock.extractPages.mockResolvedValue({
+			pages: Array.from({ length: 65 }, (_, index) => ({
+				page: index + 1,
+				text: "a".repeat(400),
+				extraction: "pdf",
+			})),
+			method: "pdf",
+			emptyPages: [],
+		});
+		const { client, calls } = fakeClient();
+
+		await ingestSource({ source: SOURCE, collectionId: 7, client });
+
+		expect(calls.added[0].chunks).toHaveLength(64);
+		expect(calls.added[1].chunks).toHaveLength(1);
+		expect(
+			calls.added[0].chunks.every(
+				(chunk) => chunk.metadata?.sync_complete === false,
+			),
+		).toBe(true);
+		expect(calls.added[1].chunks[0].metadata?.sync_complete).toBe(true);
 	});
 
 	it("deletes the document when a chunk batch fails, leaving nothing searchable", async () => {
