@@ -84,3 +84,43 @@ export function groupByLanguage(sources: PdfSource[]) {
 		EN: sources.filter((source) => source.language === "EN"),
 	};
 }
+
+/**
+ * Validates the French catalogue before it can drive destructive sync actions.
+ * A renamed `documents` field must fail closed rather than look like an empty
+ * catalogue and delete the whole collection.
+ */
+export function extractFrenchPdfSources(
+	entries: CatalogueEntry[],
+): PdfSource[] {
+	const frenchEntries = entries.filter((entry) => entry.langue === "FR");
+	const guideIds = new Set<string>();
+
+	for (const entry of frenchEntries) {
+		if (!entry.id?.trim() || !entry.nom?.trim()) {
+			throw new Error("Guide ANSSI français sans identifiant ou titre.");
+		}
+		if (guideIds.has(entry.id)) {
+			throw new Error(`Guide ANSSI français dupliqué: ${entry.id}`);
+		}
+		guideIds.add(entry.id);
+		if (!Array.isArray(entry.documents)) {
+			throw new Error(
+				`Documents absents ou invalides pour le guide ${entry.id}.`,
+			);
+		}
+	}
+
+	const sources = extractPdfSources(frenchEntries);
+	const urls = new Set<string>();
+	for (const source of sources) {
+		if (urls.has(source.pdfUrl)) {
+			throw new Error(`PDF ANSSI français dupliqué: ${source.pdfUrl}`);
+		}
+		urls.add(source.pdfUrl);
+	}
+	if (sources.length === 0) {
+		throw new Error("Le catalogue ANSSI ne contient aucun PDF français.");
+	}
+	return sources;
+}

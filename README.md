@@ -25,7 +25,7 @@ Le navigateur ne reçoit jamais la clé Albert : seule la route serveur `/api/ch
 Le découpage automatique de l'API Albert ne conserve pas les numéros de page. L'ingestion découpe donc chaque PDF page par page et attache à chaque chunk :
 
 - `page`, le numéro de page ;
-- `guide_id`, `guide_title`, `source_url`, `collection`, `extraction`.
+- `guide_id`, `guide_title`, `source_url`, `source_sha256`, `collection`, `extraction`.
 
 L'URL de citation (le PDF suivi de `#page=N`, qui ouvre le document à la bonne page) n'est pas stockée : elle se déduit de `source_url` et de `page`, et `buildCitationUrl` est la seule fonction qui la construit. Un seul champ de vérité, donc pas de risque d'URL incohérente entre l'index et l'affichage.
 
@@ -59,27 +59,50 @@ La page `/` simule une page intranet et charge le widget depuis `/embed`. La pag
 | `pnpm format` | formatage et corrections Biome sûres |
 | `pnpm typecheck` | TypeScript |
 | `pnpm test` | tests Vitest |
-| `pnpm ingest` | indexation du corpus ANSSI |
+| `pnpm ingest` | indexation initiale additive du corpus ANSSI |
+| `pnpm sync:anssi-fr` | synchronisation incrémentale de la collection française |
 | `pnpm verify:corpus` | vérifie citations et numéros de page |
 
 ## Indexation du corpus
 
-Le catalogue est lu depuis `https://messervices.cyber.gouv.fr/api/guides` : 185 PDF en français, 60 en anglais. Deux collections publiques sont alimentées, `anssi-guides-fr` et `anssi-guides-en`.
+Le catalogue est lu depuis `https://messervices.cyber.gouv.fr/api/guides`. Deux collections publiques sont alimentées, `anssi-guides-fr` et `anssi-guides-en`.
 
 ```bash
-# Vérification à blanc sur deux documents
+# Vérification à blanc de l'indexation initiale sur deux documents
 pnpm ingest -- --language FR --limit 2 --dry-run
 
-# Corpus complet, les deux langues
+# Indexation initiale des deux langues
 pnpm ingest -- --all --concurrency 3
 
 # Vérifie que chaque collection renvoie des chunks avec page et URL de citation
 pnpm verify:corpus
 ```
 
-Le script est rejouable : il réutilise les collections existantes et n'efface aucun document. Repartir de zéro suppose de supprimer les collections côté Albert.
+Le script `pnpm ingest` est réservé à l'alimentation initiale : il réutilise les collections existantes et ajoute des documents sans réconcilier les versions. Repartir de zéro suppose de supprimer les collections côté Albert.
 
 Les identifiants des collections créées doivent être reportés dans `ALBERT_COLLECTION_FR` et `ALBERT_COLLECTION_EN`.
+
+### Synchronisation française
+
+`pnpm sync:anssi-fr` met à jour uniquement `anssi-guides-fr`. La collection anglaise et les documents sans métadonnées du corpus français ne sont pas modifiés.
+
+```bash
+# Télécharge les PDF et affiche les décisions, sans écrire dans Albert
+pnpm sync:anssi-fr --dry-run
+
+# Synchronisation effective
+pnpm sync:anssi-fr --concurrency 2
+```
+
+La synchronisation identifie chaque PDF par le couple `guide_id` et `source_url`, car une fiche ANSSI peut contenir plusieurs documents. Elle inventorie toutes les pages de l'API Albert puis télécharge chaque PDF du catalogue pour calculer son SHA-256 : le catalogue ne fournit pas cette empreinte. Chaque chunk porte `source_sha256` en plus des métadonnées de citation. Le dernier chunk porte `sync_complete: true`, ce qui permet à l'exécution suivante de ne pas retenir une indexation interrompue.
+
+- Si l'empreinte et les métadonnées sont identiques, le document est conservé sans extraction de texte, OCR, création de chunks ou réécriture Albert.
+- Un nouveau PDF est indexé. Un PDF ou un titre modifié est réindexé dans un nouveau document ; l'ancienne version n'est supprimée qu'après l'écriture complète de la nouvelle.
+- Les documents gérés absents du catalogue et les doublons sont supprimés. Les documents sans `guide_id`, `source_url` et `collection: FR` exploitables sont préservés.
+- Les documents historiques sans empreinte sont réindexés une première fois pour les migrer, puis les exécutions suivantes peuvent les laisser inchangés.
+- Une erreur de téléchargement, d'extraction, d'OCR ou d'indexation conserve l'ancienne version du guide concerné. Le bilan signale chaque échec et la commande se termine en erreur.
+
+Le workflow `anssi-sync.yml` exécute cette commande chaque jour à 04:17 UTC et sérialise les exécutions. Il ne redéploie pas le widget. Une exécution manuelle depuis l'onglet Actions utilise le mode simulation par défaut ; décocher `dry_run` permet une synchronisation réelle. Le secret GitHub Actions `ALBERT_API_KEY` est requis.
 
 ## Déploiement
 
@@ -168,7 +191,7 @@ Les workflows sont versionnés dans `.github/workflows/`. Le hook `gitleaks` res
 - Pas d'authentification sur `/api/chat` : toute personne qui connaît l'URL peut poser des questions, dans la limite des plafonds ci-dessus.
 - Les compteurs des plafonds vivent en mémoire du processus. Ils sont donc propres à chaque instance : si le service est un jour déployé sur plusieurs instances, il faudra un stockage partagé, sinon la limite effective est multipliée par le nombre d'instances.
 - L'historique de conversation reste dans le navigateur ; un rechargement le perd.
-- L'ingestion n'est pas incrémentale : rejouer le script ajoute des documents, il ne met pas à jour ceux déjà indexés.
+- La synchronisation française doit télécharger chaque PDF pour détecter un changement de contenu, mais seuls les documents modifiés sont extraits et réindexés.
 - Les PDF scannés dépendent de la qualité de l'OCR.
 
 ## Déploiement (Scaleway Serverless Containers)
@@ -199,7 +222,7 @@ Le déploiement requiert quatre secrets GitHub Actions, avec les noms idiomatiqu
 - `SCW_ORGANIZATION_ID` ;
 - `SCW_PROJECT_ID`.
 
-Le job vérifie avant le déploiement que l'organisation, le projet et le conteneur configurés correspondent bien entre eux, en lisant l'espace de noms du conteneur. La région, l'identifiant du conteneur et la référence du registre sont des paramètres non secrets du workflow. `ALBERT_API_KEY` reste configuré uniquement dans Scaleway : la CI n'a pas besoin de cette clé pour vérifier ou construire l'application.
+Le déploiement utilise uniquement les secrets Scaleway. `ALBERT_API_KEY` reste configuré dans Scaleway pour l'application et séparément dans GitHub Actions pour le workflow de synchronisation du corpus ; il n'est pas nécessaire à la compilation ni aux tests.
 
 ---
 

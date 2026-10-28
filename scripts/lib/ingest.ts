@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type AlbertClient, AlbertError } from "../../lib/albert/client";
 import type { ChunkMetadata } from "../../lib/albert/types";
 import type { PdfSource } from "./catalogue";
@@ -21,6 +22,7 @@ export type IngestOutcome =
 			extraction: ExtractionMethod;
 			/** Pages with no text even after OCR; they carry no chunk. */
 			pagesWithoutText: number[];
+			sourceSha256: string;
 	  }
 	| { status: "skipped"; guideId: string; reason: string }
 	| { status: "failed"; guideId: string; reason: string };
@@ -30,17 +32,27 @@ export type IngestOutcome =
  * manually-populated Albert document. Chunk metadata carries the page number and
  * a citation URL that opens the PDF at that page.
  */
+export function checksumPdf(pdf: Buffer): string {
+	return createHash("sha256").update(pdf).digest("hex");
+}
+
 export async function ingestSource(params: {
 	source: PdfSource;
 	collectionId: number;
-	client: AlbertClient;
+	client: Pick<
+		AlbertClient,
+		"createDocument" | "addChunks" | "deleteDocument" | "ocr"
+	>;
 	dryRun?: boolean;
+	/** Reuse a download made by the synchronizer's checksum comparison. */
+	pdf?: Buffer;
 }): Promise<IngestOutcome> {
 	const { source, collectionId, client } = params;
 
 	try {
-		const pdf = await downloadPdf(source.pdfUrl);
+		const pdf = params.pdf ?? (await downloadPdf(source.pdfUrl));
 		assertPdfBuffer(pdf);
+		const sourceSha256 = checksumPdf(pdf);
 
 		const pageCount = await countPdfPages(pdf);
 		const extracted = await extractPages({
@@ -56,9 +68,23 @@ export async function ingestSource(params: {
 		const chunks = extracted.pages.flatMap((page) =>
 			chunkPageText(page.page, page.text).map((chunk) => ({
 				content: chunk.content,
-				metadata: buildChunkMetadata(source, chunk.page, page.extraction),
+				metadata: buildChunkMetadata(
+					source,
+					chunk.page,
+					page.extraction,
+					sourceSha256,
+					false,
+				),
 			})),
 		);
+
+		const finalChunk = chunks.at(-1);
+		if (finalChunk) {
+			finalChunk.metadata = {
+				...finalChunk.metadata,
+				sync_complete: true,
+			};
+		}
 
 		if (chunks.length === 0) {
 			return {
@@ -77,6 +103,7 @@ export async function ingestSource(params: {
 				pages: extracted.pages.length,
 				extraction: extracted.method,
 				pagesWithoutText: extracted.emptyPages,
+				sourceSha256,
 			};
 		}
 
@@ -110,6 +137,7 @@ export async function ingestSource(params: {
 			pages: extracted.pages.length,
 			extraction: extracted.method,
 			pagesWithoutText: extracted.emptyPages,
+			sourceSha256,
 		};
 	} catch (error) {
 		return {
@@ -132,11 +160,15 @@ export function buildChunkMetadata(
 	source: PdfSource,
 	page: number,
 	extraction: PageExtraction,
+	sourceSha256?: string,
+	syncComplete?: boolean,
 ): ChunkMetadata {
 	return {
 		guide_id: source.guideId,
 		guide_title: source.guideTitle,
 		source_url: source.pdfUrl,
+		...(sourceSha256 ? { source_sha256: sourceSha256 } : {}),
+		...(syncComplete === undefined ? {} : { sync_complete: syncComplete }),
 		page,
 		collection: source.language,
 		extraction,

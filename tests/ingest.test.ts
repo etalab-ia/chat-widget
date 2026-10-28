@@ -16,7 +16,11 @@ vi.mock("@/scripts/lib/extract", async () => {
 	return { ...actual, ...extractMock };
 });
 
-import { buildChunkMetadata, ingestSource } from "@/scripts/lib/ingest";
+import {
+	buildChunkMetadata,
+	checksumPdf,
+	ingestSource,
+} from "@/scripts/lib/ingest";
 
 const SOURCE: PdfSource = {
 	guideId: "guide-1",
@@ -91,6 +95,7 @@ describe("ingestSource", () => {
 			pages: 2,
 			extraction: "mixed",
 			pagesWithoutText: [],
+			sourceSha256: checksumPdf(Buffer.from("%PDF-1.7\ntest\n")),
 		});
 		expect(calls.created).toEqual([{ name: "guide.pdf", collectionId: 7 }]);
 		expect(calls.added).toHaveLength(1);
@@ -117,6 +122,33 @@ describe("ingestSource", () => {
 		for (const chunk of calls.added[0].chunks) {
 			expect(chunk.metadata).not.toHaveProperty("citation_url");
 			expect(chunk.metadata?.source_url).toBe(SOURCE.pdfUrl);
+		}
+	});
+
+	it("reuses the sync download and stores its SHA-256 on every chunk", async () => {
+		const { client, calls } = fakeClient();
+		const pdf = Buffer.from("%PDF-1.7\nchecksummed\n");
+
+		await ingestSource({ source: SOURCE, collectionId: 7, client, pdf });
+
+		expect(extractMock.downloadPdf).not.toHaveBeenCalled();
+		for (const chunk of calls.added[0].chunks) {
+			expect(chunk.metadata?.source_sha256).toBe(checksumPdf(pdf));
+		}
+	});
+
+	it("marks only the final chunk complete for interrupted-run recovery", async () => {
+		const { client, calls } = fakeClient();
+
+		await ingestSource({ source: SOURCE, collectionId: 7, client });
+
+		const chunks = calls.added[0].chunks;
+		expect(chunks.at(0)?.metadata?.sync_complete).toBe(false);
+		expect(chunks.at(-1)?.metadata?.sync_complete).toBe(true);
+		for (const chunk of chunks) {
+			expect(chunk.metadata?.source_sha256).toBe(
+				checksumPdf(Buffer.from("%PDF-1.7\ntest\n")),
+			);
 		}
 	});
 

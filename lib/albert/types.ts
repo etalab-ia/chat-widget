@@ -4,11 +4,22 @@ export type ChunkMetadata = {
 	guide_id?: string;
 	guide_title?: string;
 	source_url?: string;
+	source_sha256?: string;
+	/** Written on every new chunk; only the final chunk marks ingestion complete. */
+	sync_complete?: boolean;
 	page?: number;
 	updated?: string;
 	collection?: string;
 	extraction?: string;
 	[key: string]: string | number | boolean | null | undefined;
+};
+
+export type AlbertDocument = {
+	id: number;
+	name: string;
+	collection_id: number;
+	created: number;
+	chunks?: number;
 };
 
 export type Chunk = {

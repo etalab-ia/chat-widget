@@ -1,6 +1,8 @@
 import type {
+	AlbertDocument,
 	ChatMessage,
 	Chunk,
+	ChunkMetadata,
 	OCRResponse,
 	SearchHit,
 	SearchResponse,
@@ -215,24 +217,65 @@ export class AlbertClient {
 		}
 	}
 
-	async getDocumentChunks(documentId: number): Promise<Chunk[]> {
-		const response = await this.request(`/v1/documents/${documentId}/chunks`);
+	/** Lists every document, following Albert's 100-item page limit. */
+	async listDocuments(collectionId: number): Promise<AlbertDocument[]> {
+		const documents: AlbertDocument[] = [];
+		for (let offset = 0; ; offset += 100) {
+			const response = await this.request(
+				`/v1/documents?collection_id=${collectionId}&limit=100&offset=${offset}`,
+			);
+			const payload = (await response.json()) as {
+				data?: AlbertDocument[];
+			};
+			const page = payload.data ?? [];
+			documents.push(...page);
+			if (page.length < 100) return documents;
+		}
+	}
+
+	/** Reads source metadata from the final chunk, including its completion marker. */
+	async getDocumentMetadata(
+		documentId: number,
+		chunkCount?: number,
+	): Promise<ChunkMetadata | null> {
+		if (chunkCount === 0) return null;
+		const offset = Math.max(0, (chunkCount ?? 1) - 1);
+		const response = await this.request(
+			`/v1/documents/${documentId}/chunks?limit=1&offset=${offset}`,
+		);
 		const payload = (await response.json()) as { data?: Chunk[] };
-		return payload.data ?? [];
+		return payload.data?.[0]?.metadata ?? null;
 	}
 
 	async ocr(params: {
 		documentUrl: string;
 		model?: string;
 	}): Promise<OCRResponse> {
-		const response = await this.request("/v1/ocr", {
-			method: "POST",
-			body: JSON.stringify({
-				model: params.model ?? "mistral-ocr-2512",
-				document: { type: "document_url", document_url: params.documentUrl },
-			}),
-		});
-		return (await response.json()) as OCRResponse;
+		// A busy OCR model is transient. Retry without duplicating the document:
+		// ingestion creates its Albert document only after extraction succeeds.
+		for (let attempt = 0; ; attempt += 1) {
+			try {
+				const response = await this.request("/v1/ocr", {
+					method: "POST",
+					body: JSON.stringify({
+						model: params.model ?? "mistral-ocr-2512",
+						document: {
+							type: "document_url",
+							document_url: params.documentUrl,
+						},
+					}),
+				});
+				return (await response.json()) as OCRResponse;
+			} catch (error) {
+				const retryable =
+					error instanceof AlbertError &&
+					[429, 502, 503, 504].includes(error.status);
+				if (!retryable || attempt === 3) throw error;
+				await new Promise((resolve) =>
+					setTimeout(resolve, 1000 * 2 ** attempt),
+				);
+			}
+		}
 	}
 }
 
