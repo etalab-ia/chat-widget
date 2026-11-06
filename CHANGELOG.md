@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/etalab-ia/chat-widget/compare/chat-widget-v0.3.0...chat-widget-v0.3.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **deps:** stop grouping major updates together ([73dba2e](https://github.com/etalab-ia/chat-widget/commit/73dba2ef8eaef2cddd1453ce1d1bf732e82cf251))
+
 ## [0.3.0](https://github.com/etalab-ia/chat-widget/compare/chat-widget-v0.2.0...chat-widget-v0.3.0) (2026-11-06)
 
 
